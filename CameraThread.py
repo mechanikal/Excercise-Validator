@@ -63,14 +63,15 @@ class CameraThread:
         
         self.logging = logging
         
+        # --- NOWE: Event do sygnalizowania zakończenia serii ---
+        self.set_finished_event = threading.Event()
+        
         self.cap_f = cv2.VideoCapture(source_front)
         self.cap_s = cv2.VideoCapture(source_side)
         
-        # Cache dla stałych rozmiarów (unikanie .shape w pętli)
         self.w_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.h_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        # Tworzymy pulę wątków dla asynchronicznego wysyłania zadań do GPU
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         self.cap_f.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -102,37 +103,21 @@ class CameraThread:
         self.joint_tolerances = {j: 15 for j in JOINT_DEFINITIONS}
         self.eps = 2
 
-        # --- INICJALIZACJA MEDIAPIPE Z FALLBACKIEM ---
         self.device = "GPU"
-        model_path = 'pose_landmarker_lite.task' # Upewnij się, że to wersja LITE
+        model_path = 'pose_landmarker_lite.task'
 
         try:
             print("[INIT] Próba uruchomienia na GPU...")
-            base_options = python.BaseOptions(
-                model_asset_path=model_path,
-                delegate=python.BaseOptions.Delegate.GPU
-            )
-            options = vision.PoseLandmarkerOptions(
-                base_options=base_options,
-                output_segmentation_masks=False, 
-                running_mode=vision.RunningMode.VIDEO 
-            )
+            base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.GPU)
+            options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
             self.detector_f = vision.PoseLandmarker.create_from_options(options)
             self.detector_s = vision.PoseLandmarker.create_from_options(options)
             print(f"[SUCCESS] MediaPipe zainicjalizowane na: {self.device}")
         except Exception as e:
             self.device = "CPU"
             print(f"[WARNING] Błąd GPU: {e}")
-            print("[INFO] Przełączanie na tryb awaryjny CPU...")
-            base_options = python.BaseOptions(
-                model_asset_path=model_path,
-                delegate=python.BaseOptions.Delegate.CPU
-            )
-            options = vision.PoseLandmarkerOptions(
-                base_options=base_options,
-                output_segmentation_masks=False, 
-                running_mode=vision.RunningMode.VIDEO 
-            )
+            base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.CPU)
+            options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
             self.detector_f = vision.PoseLandmarker.create_from_options(options)
             self.detector_s = vision.PoseLandmarker.create_from_options(options)
             print(f"[SUCCESS] MediaPipe zainicjalizowane na: {self.device}")
@@ -153,17 +138,12 @@ class CameraThread:
                 break
             
             ts = int(time.time() * 1000)
-            
-            # Szybkie tworzenie obiektów Image (bez konwersji BGR2RGB dla szybkości)
-            # Uwaga: Jeśli kolory w detekcji będą dziwne/błędne, dodaj cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img_f = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_f)
             img_s = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_s)
             
-            # RÓWNOLEGŁE WYSYŁANIE DO GPU (Concurrent Inference)
             future_f = self.executor.submit(self.detector_f.detect_for_video, img_f, ts)
             future_s = self.executor.submit(self.detector_s.detect_for_video, img_s, ts)
 
-            # Czekamy na wyniki (blocking wait)
             res_f = future_f.result()
             res_s = future_s.result()
 
@@ -173,19 +153,13 @@ class CameraThread:
             self.frame_count += 1
 
     def _process_results(self, lms_f, lms_s):
-        # Optymalizacja: Generowanie macierzy współrzędnych 3D przez list comprehension
-        # Szybsze niż pętle for z append()
         kp = np.array([
             [lms_f[i].x * self.w_f, lms_f[i].y * self.h_f, lms_s[i].x * self.w_f]
             for i in range(33)
         ], dtype=np.float32)
         
         self.current_frame_data.keypoints = kp
-        
-        # Odtworzenie self.coords dla logiki kątów (kompatybilność wsteczna)
         self.coords = {LANDMARK_NAMES[i]: kp[i] for i in range(33)}
-        
-        # Uruchomienie logiki ćwiczenia
         self._run_exercise_logic()
 
     def _run_exercise_logic(self):
@@ -228,8 +202,6 @@ class CameraThread:
 
         self.current_frame_data.frame_index = self.frame_count
         self.current_frame_data.key_position_flag = (isStarting or isTop)
-        
-        # Używamy copy.copy() zamiast deepcopy()
         self.temp_frames.append(copy.copy(self.current_frame_data))
 
     def _handle_repetition_complete(self):
@@ -256,15 +228,21 @@ class CameraThread:
         if self.reps_arr:
             self.sets_arr.append(list(self.reps_arr))
             set_n = len(self.sets_arr)
+            
             if self.logging:
                 try:
                     with open(f"set_{set_n}.json", "w") as f:
                         json.dump(self.reps_arr, f, cls=CustomEncoder)
                 except Exception: pass
+            
             self.reps_arr = []
             self.current_frame_data.set_number += 1
             self.current_frame_data.repetition_number = 0
             self.frames_since_last_rep = 0
+            
+            # --- NOWE: Sygnalizacja zakończenia serii ---
+            print(f"[THREAD] Wykryto koniec serii nr {set_n}. Wysyłam sygnał.")
+            self.set_finished_event.set()
 
     def _process_repetition(self, frames_list):
         pause_indices = [i for i, f in enumerate(frames_list) if f.phase == frame_data.PhaseEnum.PAUSE]
@@ -299,6 +277,16 @@ if __name__ == "__main__":
             current_time = time.time()
             f_idx = cam.frame_count
             
+            # --- NOWE: Obsługa sygnału końca serii w głównym wątku ---
+            if cam.set_finished_event.is_set():
+                print("\n" + "!"*40)
+                print(f" >>> ODEBRANO SYGNAŁ: KONIEC SERII! (Suma serii: {len(cam.sets_arr)})")
+                print("!"*40 + "\n")
+                # Tutaj możesz np. wysłać dane do API, zresetować UI itp.
+                
+                # Bardzo ważne: "Czyścimy" zdarzenie, aby czekać na kolejne
+                cam.set_finished_event.clear()
+
             time_diff = current_time - prev_time
             if time_diff > 0.5:
                 fps = (f_idx - prev_frame_count) / time_diff
