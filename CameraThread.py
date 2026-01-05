@@ -8,11 +8,11 @@ import os
 import copy
 import time
 import concurrent.futures
+import queue  # <--- Potrzebne do buforowania zapisu
 
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-# KLUCZOWE DLA WSL: Wymuszenie sterowników GPU przed inicjalizacją MediaPipe
 os.environ['LD_LIBRARY_PATH'] = '/usr/lib/wsl/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
 
 import frame_data 
@@ -37,7 +37,6 @@ JOINT_DEFINITIONS = {
 }
 
 def calc_angle(a, b, c):
-    """Szybkie obliczanie kąta na wektorach NumPy."""
     ba = a - b
     bc = c - b
     norm_ba = np.linalg.norm(ba)
@@ -62,8 +61,6 @@ class CameraThread:
                  json_start_pos="wzniosy_3d_start.json", json_top_pos="wzniosy_3d_top.json", side_offset=0, logging=False):
         
         self.logging = logging
-        
-        # --- NOWE: Event do sygnalizowania zakończenia serii ---
         self.set_finished_event = threading.Event()
         
         self.cap_f = cv2.VideoCapture(source_front)
@@ -71,7 +68,30 @@ class CameraThread:
         
         self.w_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.h_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.w_s = int(self.cap_s.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.h_s = int(self.cap_s.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
+        # --- KONFIGURACJA NAGRYWANIA ---
+        fps_f = self.cap_f.get(cv2.CAP_PROP_FPS)
+        fps_s = self.cap_s.get(cv2.CAP_PROP_FPS)
+        if fps_f <= 0: fps_f = 30.0
+        if fps_s <= 0: fps_s = 30.0
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        print(f"[INFO] Inicjalizacja nagrywania: Front {self.w_f}x{self.h_f} @ {fps_f}FPS")
+        
+        self.writer_f = cv2.VideoWriter('video_front.mp4', fourcc, fps_f, (self.w_f, self.h_f))
+        self.writer_s = cv2.VideoWriter('video_side.mp4', fourcc, fps_s, (self.w_s, self.h_s))
+        
+        ### OPTYMALIZACJA: Kolejka do zapisu wideo ###
+        # maxsize=0 oznacza nieskończoną kolejkę (uwaga na RAM przy bardzo wolnym dysku)
+        # Jeśli dysk jest wolny, ustaw np. maxsize=100, żeby nie "zjadło" całej pamięci
+        self.video_queue = queue.Queue(maxsize=200) 
+        
+        # Uruchamiamy osobny wątek tylko do zapisywania plików
+        self.writer_thread = threading.Thread(target=self._video_writer_worker, daemon=True)
+        self.writer_thread.start()
+
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         self.cap_f.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -105,28 +125,42 @@ class CameraThread:
 
         self.device = "GPU"
         model_path = 'pose_landmarker_lite.task'
-
+        # Inicjalizacja MediaPipe (bez zmian)
         try:
-            print("[INIT] Próba uruchomienia na GPU...")
             base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.GPU)
             options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
             self.detector_f = vision.PoseLandmarker.create_from_options(options)
             self.detector_s = vision.PoseLandmarker.create_from_options(options)
-            print(f"[SUCCESS] MediaPipe zainicjalizowane na: {self.device}")
-        except Exception as e:
-            self.device = "CPU"
-            print(f"[WARNING] Błąd GPU: {e}")
+        except Exception:
             base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.CPU)
             options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
             self.detector_f = vision.PoseLandmarker.create_from_options(options)
             self.detector_s = vision.PoseLandmarker.create_from_options(options)
-            print(f"[SUCCESS] MediaPipe zainicjalizowane na: {self.device}")
 
         self.lastFrameAngles = {}
         self.top_reached = False
 
         self.thread = threading.Thread(target=self._update, daemon=True)
         self.thread.start()
+
+    ### OPTYMALIZACJA: Funkcja wątku zapisującego ###
+    def _video_writer_worker(self):
+        while True:
+            # Pobieramy klatki z kolejki
+            item = self.video_queue.get()
+            
+            # None to sygnał "poison pill" do zatrzymania wątku
+            if item is None:
+                self.video_queue.task_done()
+                break
+                
+            frame_f, frame_s = item
+            
+            # Zapis fizyczny na dysk (to jest wolne, ale nie blokuje już głównego wątku)
+            if frame_f is not None: self.writer_f.write(frame_f)
+            if frame_s is not None: self.writer_s.write(frame_s)
+            
+            self.video_queue.task_done()
 
     def _update(self):
         while self.running:
@@ -136,6 +170,12 @@ class CameraThread:
             if not ret_f or not ret_s:
                 self.running = False
                 break
+            
+            ### OPTYMALIZACJA: Wrzucamy do kolejki zamiast pisać bezpośrednio ###
+            # Jeśli kolejka jest pełna (wolny dysk), pomijamy zapis, żeby nie zwiesić analizy
+            if not self.video_queue.full():
+                # Kopiujemy (copy), aby uniknąć błędów pamięci, jeśli OpenCV nadpisze bufor
+                self.video_queue.put((frame_f.copy(), frame_s.copy()))
             
             ts = int(time.time() * 1000)
             img_f = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_f)
@@ -163,6 +203,7 @@ class CameraThread:
         self._run_exercise_logic()
 
     def _run_exercise_logic(self):
+        # (Bez zmian w logice)
         starting_check, top_check = [], []
         moving_any_up, moving_any_down = False, False
 
@@ -170,11 +211,9 @@ class CameraThread:
             try:
                 a, b, c = self.coords[idx_names[0]], self.coords[idx_names[1]], self.coords[idx_names[2]]
                 angle = calc_angle(a, b, c)
-                
                 tol = self.joint_tolerances.get(j_name, 15)
                 starting_check.append(abs(angle - self.start_pos.get(j_name, 0)) < tol)
                 top_check.append(abs(angle - self.top_pos.get(j_name, 0)) < tol)
-
                 if j_name in self.lastFrameAngles:
                     diff = angle - self.lastFrameAngles[j_name]
                     if diff > self.eps: moving_any_up = True
@@ -209,18 +248,13 @@ class CameraThread:
         cleaned_rep = self._process_repetition(self.temp_frames)
         self.reps_arr.append(cleaned_rep)
         self.frames_since_last_rep = 0
-        
-        rep_n = self.current_frame_data.repetition_number
-        set_n = self.current_frame_data.set_number
-        
+        rep_n, set_n = self.current_frame_data.repetition_number, self.current_frame_data.set_number
         if self.logging:
             def save_task(data, r, s):
                 try:
-                    with open(f"rep_{r}_set{s}.json", "w") as f:
-                        json.dump(data, f, cls=CustomEncoder)
+                    with open(f"rep_{r}_set{s}.json", "w") as f: json.dump(data, f, cls=CustomEncoder)
                 except Exception: pass
             threading.Thread(target=save_task, args=(cleaned_rep, rep_n, set_n)).start()
-            
         self.temp_frames = []
         self.top_reached = False
 
@@ -228,19 +262,14 @@ class CameraThread:
         if self.reps_arr:
             self.sets_arr.append(list(self.reps_arr))
             set_n = len(self.sets_arr)
-            
             if self.logging:
                 try:
-                    with open(f"set_{set_n}.json", "w") as f:
-                        json.dump(self.reps_arr, f, cls=CustomEncoder)
+                    with open(f"set_{set_n}.json", "w") as f: json.dump(self.reps_arr, f, cls=CustomEncoder)
                 except Exception: pass
-            
             self.reps_arr = []
             self.current_frame_data.set_number += 1
             self.current_frame_data.repetition_number = 0
             self.frames_since_last_rep = 0
-            
-            # --- NOWE: Sygnalizacja zakończenia serii ---
             print(f"[THREAD] Wykryto koniec serii nr {set_n}. Wysyłam sygnał.")
             self.set_finished_event.set()
 
@@ -257,51 +286,46 @@ class CameraThread:
     def stop(self):
         self.running = False
         self.thread.join()
+        
+        ### OPTYMALIZACJA: Sprzątanie wątku zapisu ###
+        print("[INFO] Czekam na zakończenie zapisu wideo z bufora...")
+        self.video_queue.put(None) # Wysyłamy sygnał stopu
+        self.writer_thread.join()  # Czekamy aż wszystko się zapisze
+        
+        if hasattr(self, 'writer_f'): self.writer_f.release()
+        if hasattr(self, 'writer_s'): self.writer_s.release()
         self.cap_f.release()
         self.cap_s.release()
+        print("[INFO] Zakończono nagrywanie i analizę.")
 
 if __name__ == "__main__":
     cam = CameraThread(side_offset=15)
-    
     print("\n" + "="*85)
-    print(f" ANALIZA RUCHU 3D URUCHOMIONA | URZĄDZENIE: {cam.device}")
+    print(f" ANALIZA + NAGRYWANIE (ASYNC) | URZĄDZENIE: {cam.device}")
     print(" Naciśnij Ctrl+C, aby zakończyć.")
     print("="*85 + "\n")
 
-    prev_frame_count = 0
-    prev_time = time.time()
-    fps = 0
+    prev_frame_count, prev_time, fps = 0, time.time(), 0
 
     try:
         while cam.running:
             current_time = time.time()
             f_idx = cam.frame_count
-            
-            # --- NOWE: Obsługa sygnału końca serii w głównym wątku ---
             if cam.set_finished_event.is_set():
-                print("\n" + "!"*40)
-                print(f" >>> ODEBRANO SYGNAŁ: KONIEC SERII! (Suma serii: {len(cam.sets_arr)})")
-                print("!"*40 + "\n")
-                # Tutaj możesz np. wysłać dane do API, zresetować UI itp.
-                
-                # Bardzo ważne: "Czyścimy" zdarzenie, aby czekać na kolejne
+                print(f"\n[EVENT] KONIEC SERII! (Suma: {len(cam.sets_arr)})")
                 cam.set_finished_event.clear()
-
-            time_diff = current_time - prev_time
-            if time_diff > 0.5:
-                fps = (f_idx - prev_frame_count) / time_diff
-                prev_frame_count = f_idx
-                prev_time = current_time
-
-            phase = cam.current_frame_data.phase.name if hasattr(cam.current_frame_data.phase, 'name') else str(cam.current_frame_data.phase)
-            status_line = (
-                f"| Klatka: {str(f_idx).ljust(5)} "
-                f"| FPS: {format(fps, '.1f').ljust(4)} "
-                f"| Seria: {cam.current_frame_data.set_number} "
-                f"| Powt.: {cam.current_frame_data.repetition_number} "
-                f"| Faza: {phase.ljust(6)} |"
-            )
-            print(status_line, end="\r", flush=True)
+            
+            if current_time - prev_time > 0.5:
+                fps = (f_idx - prev_frame_count) / (current_time - prev_time)
+                prev_frame_count, prev_time = f_idx, current_time
+            
+            # Info o wielkości kolejki zapisu pozwala monitorować czy dysk wyrabia
+            q_size = cam.video_queue.qsize()
+            
+            phase = str(cam.current_frame_data.phase)
+            if hasattr(cam.current_frame_data.phase, 'name'): phase = cam.current_frame_data.phase.name
+            
+            print(f"| FPS: {fps:.1f} | Q: {q_size} | Seria: {cam.current_frame_data.set_number} | Powt: {cam.current_frame_data.repetition_number} | {phase.ljust(6)}", end="\r", flush=True)
             time.sleep(0.01)
 
     except KeyboardInterrupt:
