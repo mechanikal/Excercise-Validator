@@ -3,14 +3,16 @@ from frame_data import *
 class CorrectExercise:
     def __init__(self, number_of_phases):
         self.correct_tempo = [] #int (ilosc klatek)
-        self.correct_positions = [] #np.array
+        self.correct_angle = [] #np.array (kat)
         self.important_angle = [] #tablica z 'a', 'b' lub 'c'
         self.number_of_phases = number_of_phases #int
+        self.joints = [] #wybrane stawy
 
-    def add_correct_position_for_phase(self, position, angles, tempo):
-        self.correct_positions.append(position)
+    def add_correct_position_for_phase(self, angle_value, angles, tempo, joints):
+        self.correct_angle.append(angle_value)
         self.important_angle.append(angles)
         self.correct_tempo.append(tempo)
+        self.joints.append(joints)
 
     def file_read(self, file_name):
         with open(file_name, "r") as file:
@@ -18,11 +20,13 @@ class CorrectExercise:
                 line_1 = np.array([float(x) for x in file.readline().strip().split()])
                 line_2 = file.readline().strip()
                 line_3 = int(file.readline().strip())
-                self.add_correct_position_for_phase(line_1, line_2, line_3)
+                line_4 = file.readline().strip().split()
+                numbers = np.array([int(x) for x in line_4])
+                self.add_correct_position_for_phase(line_1, line_2, line_3, numbers.reshape(-1, 3))
 
     def check_frame_position(self, frame_data: FrameData, exercise_phase):
         if frame_data.key_position_flag:
-            frame_data.percent_match = check_position(self.correct_positions[exercise_phase], frame_data.keypoints, 20, self.important_angle[exercise_phase])
+            frame_data.percent_match = check_position(self.correct_angle[exercise_phase], frame_data.keypoints, self.joints[exercise_phase], self.important_angle[exercise_phase])
         else:
             frame_data.percent_match = None
 
@@ -72,12 +76,15 @@ def angle(p, q, r, x):
 #x - kat ktory chcemy sprawdzic
 
 
-def check_position(correct_position, frame_keypoints, n, x):
+def check_position(correct_position, frame_keypoints, joints, x):
     result = 0.0
+    n = len(joints)
     for i in range(0, n):
-        p1, q1, r1 = correct_position[i]
-        p2, q2, r2 = frame_keypoints[i]
-        result += correctness_percent(angle(p1, q1, r1, x), angle(p2, q2, r2, x))
+        correct_joints = []
+        for j in joints[i]:
+            correct_joints.append(frame_keypoints[j])
+        p1, q1, r1 = correct_joints
+        result += correctness_percent(angle(p1, q1, r1, x), correct_position[i])
     return result/n
 
 
@@ -104,6 +111,7 @@ def fill_FrameData(frames: list[FrameData], correct_exercise: CorrectExercise, n
     frames[0].key_position_flag = False
     phase_tmp = 0
     frame_tmp = 0
+
     for i in range(number_of_frames - 1):
         frame_tmp += 1
         frames[i+1].key_position_flag = is_key_position(frames[i].phase, frames[i+1].phase)
