@@ -1,21 +1,28 @@
+import enum
 import sys
 from PySide6.QtWidgets import QApplication, QStackedWidget
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt
+
+import CameraThread
 import GUIScreens as gui
 import VideoRenderer
-import voice_interface
 from voice_interface import voice
 from voice_interface import state
 from PySide6.QtCore import Slot
+
+class State(enum.IntEnum):
+  START = 0
+  CHOOSE_COMMAND = enum.auto()
+  CHOOSE_EXERCISE = enum.auto()
+  TRAINING_IN_PROGRESS = enum.auto()
+  FINISH = enum.auto()
 
 class App(QStackedWidget):
     def __init__(self):
         super().__init__()
         # components
-        # TODO: connect all components
         self.voice_interface = voice.Voice()  # receives and validates voice commands sending appropriate signals to appropriate component
-        self.counter = None  # dictates exercise tempo with voice ques, counts times between sets
-        self.video_processor = None  # processes camera feed from 2 cameras, saves the video and produces DataFrame objects
+        self.video_processor = CameraThread.VideoProcessor(0,"http://192.168.70.220:8080/video")  # processes camera feed from 2 cameras, saves the video and produces DataFrame objects
         self.graphical_renderer = VideoRenderer.VideoRenderer()  # reads video from file, annotates each frame with feedback based on completed DataFrame objects, saves modified frames as video
         self.exercise_validator = None  # completes FrameData objects
 
@@ -41,7 +48,6 @@ class App(QStackedWidget):
         # shared data
         self.recordings_filenames = None  # filenames recordings of each exercise before video processing
         self.video_data = None  # list of frame_data objects, the objects are created by video_processor and supplied with data by exercise_validator
-
         # start
         self.setCurrentIndex(0)
 
@@ -60,16 +66,32 @@ class App(QStackedWidget):
         self.player.back.connect(self.goto_list)
         self.timer_screen.finished.connect(self.start_last_exercise)
         self.graphical_renderer.finished.connect(self.goto_list)
-        # TODO: connect voice interface and timer
         self.voice_interface.text_signal.connect(self.voice_command_handler)
         self.voice_interface.start()
         self.last_exercise = None
+        self.video_processor.rep_finished_signal.connect(self.counter_rep)
+        self.video_processor.set_finished_signal.connect(self.counter_set)
+
+        self.exercise_waiting = False
+        self.filename_front = None
+        self.filename_side = None
+
+        self.frames = None
 
     def goto_menu(self):
+        if self.video_processor.running:
+            self.video_processor.stop()
+            self.process_exercise()
         self.setCurrentIndex(0)
     def goto_idle(self):
+        if self.video_processor.running:
+            self.video_processor.stop()
+            self.process_exercise()
         self.setCurrentIndex(5)
     def goto_selector(self):
+        if self.video_processor.running:
+            self.video_processor.stop()
+            self.process_exercise()
         self.setCurrentIndex(6)
     def goto_gif(self):
         self.setCurrentIndex(4)
@@ -89,21 +111,21 @@ class App(QStackedWidget):
     def start_lateral(self):
         self.gif_screen.change_gif(1)
         self.last_exercise = 'lateral'
-        #self.video_processor.start(1)
+        self.video_processor.start(0)
         self.goto_gif()
-        self.voice_interface.start_set(1, 2, 1, 5, 10, 3)
+        self.exercise_waiting = True
     def start_curl(self):
         self.gif_screen.change_gif(2)
         self.last_exercise = 'curl'
-        #self.video_processor.start(2)
+        self.video_processor.start(2)
         self.goto_gif()
-        self.voice_interface.start_set(1, 2, 1, 5, 10, 3)
+        self.exercise_waiting = True
     def start_row(self):
         self.gif_screen.change_gif(3)
         self.last_exercise = 'row'
-        #self.video_processor.start(3)
+        self.video_processor.start(1)
         self.goto_gif()
-        self.voice_interface.start_set(1, 2, 1, 5, 10, 3)
+        self.exercise_waiting = True
     def start_last_exercise(self):
         if self.last_exercise == 'lateral':
             self.start_lateral()
@@ -111,26 +133,54 @@ class App(QStackedWidget):
             self.start_curl()
         elif self.last_exercise == 'row':
             self.start_row()
+
+    def process_exercise(self):
+        if self.exercise_waiting:
+            self.video_data = self.video_processor.get_frames()
+            if len(self.video_data) == 0:
+                self.exercise_waiting = False
+                return
+            self.filename_front = self.video_processor.fname_f
+            self.filename_side = self.video_processor.fname_s
+            self.goto_loading()
+            self.graphical_renderer.process_file(self.filename_front, self.video_data,False)
+            self.graphical_renderer.process_file(self.filename_side, self.video_data,True)
+        self.exercise_waiting = False
+
+
+
     @Slot(str)
     def voice_command_handler(self,command):
         self.voice_interface.say(command)
         #print(command)
         if command == state.FINISH_TRAINING_CMD:
+            self.voice_interface.set_state(State.FINISH)
             self.goto_menu()
-        if command == state.CHOOSE_EXCERCISE_CMD:
+        if command == state.CHOOSE_EXERCISE_CMD:
+            self.voice_interface.set_state(State.CHOOSE_EXERCISE)
             self.goto_selector()
         if command == state.CURL_CMD:
+            self.voice_interface.set_state(State.TRAINING_IN_PROGRESS)
             self.start_curl()
         if command == state.LATERAL_CMD:
+            self.voice_interface.set_state(State.TRAINING_IN_PROGRESS)
             self.start_lateral()
         if command == state.ROW_CMD:
+            self.voice_interface.set_state(State.TRAINING_IN_PROGRESS)
             self.start_row()
-        if command == state.FINISH_EXCERCISE_CMD:
+        if command == state.FINISH_EXERCISE_CMD:
+            self.voice_interface.set_state(State.CHOOSE_COMMAND)
             self.goto_selector()
         if command == state.UNRECOGNIZED_CMD:
-          pass
-            #TODO say unrecognised command
+          self.voice_interface.say("nie zrozumiałem")
 
+    @Slot(int)
+    def counter_rep(self, rep):
+        self.voice_interface.say(str(rep))
+
+    @Slot(int)
+    def counter_set(self, rep):
+        self.voice_interface.say("seria: "+str(rep))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -14,6 +14,7 @@ class VideoRenderer(QThread):
         self.filenames = None
         self.datas = None
 
+    # relic
     def run(self):
         self.process_files(self.filenames,self.datas)
 
@@ -49,12 +50,13 @@ class VideoRenderer(QThread):
         frame[y:y + new_h, x:x + new_w] = roi
         return frame
 
+    #relic
     def process_files(self,filenames,video_datas):
         for filename,video_data in zip(filenames,video_datas):
             self.process_file(filename,video_data)
         self.finished.emit()
 
-    def process_file(self, filename,video_data):
+    def process_file(self, filename,video_data,side_view):
         full_filename = 'camera_recordings/' + filename
         cap = cv2.VideoCapture(full_filename)
         if not cap.isOpened():
@@ -68,20 +70,15 @@ class VideoRenderer(QThread):
         new_filename = 'video_reports\\' + new_filename
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(new_filename, fourcc, fps, (width, height))
-
         frame_index = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_index < len(video_data):
-                frame_data = video_data[frame_index]
-                frame = self.process_frame(frame, frame_data)
-                writer.write(frame)
-            else:
-                print("data ended before video")
-                break
-            frame_index = frame_index + 1
+        frames = (item for sublist1 in video_data for sublist2 in sublist1 for item in sublist2)
+        for frame_data in frames:
+            frame = None
+            while frame_index < frame_data.frame_index:
+                ret, frame = cap.read()
+                frame_index += 1
+            writer_frame = self.process_frame(frame, frame_data,side_view)
+            writer.write(writer_frame)
 
         cap.release()
         writer.release()
@@ -94,7 +91,7 @@ class VideoRenderer(QThread):
         cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_DUPLEX, scale, color, thickness, cv2.LINE_AA)
         return frame
 
-    def process_frame(self,frame,frame_data):
+    def process_frame(self,frame,frame_data,side_view):
         text = f"{self.last_position_match:.2f}"
         self.overlay_text(frame, text,scale=3)
         if frame_data.tempo == fd.TempoEnum.OK:
@@ -104,6 +101,29 @@ class VideoRenderer(QThread):
         else:
             icon = self.watch_TOO_FAST
         frame = self.overlay_icon(frame, icon, scale=2)
+        frame = self.draw_keypoints(frame, frame_data,side_view)
+        return frame
+
+    def draw_keypoints(self, frame,frame_data,side_view):
+        point_radius = 5
+        wrong_angle_radius = 12
+        thickness = 2
+        if side_view:
+            keypoints = frame_data.keypoints_side
+        else:
+            keypoints = frame_data.keypoints
+        for i, kp in enumerate(keypoints):
+            x = int(kp[0])
+            y = int(kp[1])
+            if x <= 0 or y <= 0:
+                continue
+            if frame_data.joints_moving[i]:
+                color = (0, 0, 255)
+            else:
+                color = (0, 255, 0)
+            cv2.circle(frame, (x, y), point_radius, color, -1)
+            if frame_data.joints_wrong_angles[i]:
+                cv2.circle(frame,(x, y),wrong_angle_radius,(0, 0, 255),thickness)
         return frame
 
 # if __name__ == "__main__":

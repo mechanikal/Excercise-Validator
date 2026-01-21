@@ -19,8 +19,10 @@ class FrameData:
     set_number: int
     repetition_number: int
     keypoints: np.ndarray
+    keypoints_side: np.ndarray
     phase: int
     tempo: int
     percent_match: np.float32 # shape = (20, 3), dtype=np.float32
     key_position_flag: np.bool_
     joints_moving: np.ndarray # shape = (20,), dtype=np.bool_
+    joints_wrong_angles: np.ndarray # shape = (20,), dtype=np.bool_
