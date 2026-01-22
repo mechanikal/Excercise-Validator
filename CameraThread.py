@@ -1,334 +1,539 @@
-import dataclasses
-import json
+from datetime import datetime
+import time
+from enum import IntEnum
+import copy
 import cv2
-import threading
 import numpy as np
 import mediapipe as mp
-import os
-import copy
-import time
-import concurrent.futures
-import queue  # <--- Potrzebne do buforowania zapisu
-
+from PySide6.QtCore import QThread, QObject
+from PySide6.QtCore import Signal
+from mediapipe.python.solutions.pose import PoseLandmark
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+import frame_data
+import queue
 
-os.environ['LD_LIBRARY_PATH'] = '/usr/lib/wsl/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+DATAFRAME_LANDMARKS = [
+    PoseLandmark.LEFT_HEEL,
+    PoseLandmark.RIGHT_HEEL,
+    PoseLandmark.LEFT_KNEE,
+    PoseLandmark.RIGHT_KNEE,
+    PoseLandmark.LEFT_HIP,
+    PoseLandmark.RIGHT_HIP,
+    PoseLandmark.LEFT_SHOULDER,
+    PoseLandmark.RIGHT_SHOULDER,
+    PoseLandmark.LEFT_ELBOW,
+    PoseLandmark.RIGHT_ELBOW,
+    PoseLandmark.LEFT_WRIST,
+    PoseLandmark.RIGHT_WRIST,
+    PoseLandmark.LEFT_EYE,
+    PoseLandmark.RIGHT_EYE,
+    PoseLandmark.NOSE,
+]
+class DFL(IntEnum):
+    LEFT_HEEL = 0
+    RIGHT_HEEL = 1
+    LEFT_KNEE = 2
+    RIGHT_KNEE = 3
+    LEFT_HIP = 4
+    RIGHT_HIP = 5
+    LEFT_SHOULDER = 6
+    RIGHT_SHOULDER = 7
+    LEFT_ELBOW = 8
+    RIGHT_ELBOW = 9
+    LEFT_WRIST = 10
+    RIGHT_WRIST = 11
+    LEFT_EYE = 12
+    RIGHT_EYE = 13
+    NOSE = 14
 
-import frame_data 
 
-LANDMARK_NAMES = {i: name for i, name in enumerate([
-    "Nose", "L. eye (inner)", "L. eye", "L. eye (outer)", "R. eye (inner)", "R. eye", "R. eye (outer)",
-    "L. ear", "R. ear", "Mouth (left)", "Mouth (right)", "L. shoulder", "R. shoulder", "L. elbow", 
-    "R. elbow", "L. wrist", "R. wrist", "L. pinky", "R. pinky", "L. index", "R. index", "L. thumb", 
-    "R. thumb", "L. hip", "R. hip", "L. knee", "R. knee", "L. ankle", "R. ankle", "L. heel", "R. heel", 
-    "L. foot index", "R. foot index"
-])}
-
-JOINT_DEFINITIONS = {
-    "L_elbow": ["L. shoulder", "L. elbow", "L. wrist"],
-    "R_elbow": ["R. shoulder", "R. elbow", "R. wrist"],
-    "L_knee": ["L. hip", "L. knee", "L. ankle"],
-    "R_knee": ["R. hip", "R. knee", "R. ankle"],
-    "L_shoulder": ["L. elbow", "L. shoulder", "L. hip"],
-    "R_shoulder": ["R. elbow", "R. shoulder", "R. hip"],
-    "L_hip": ["L. shoulder", "L. hip", "L. knee"],
-    "R_hip": ["R. shoulder", "R. hip", "R. knee"],
-}
-
-def calc_angle(a, b, c):
-    ba = a - b
-    bc = c - b
-    norm_ba = np.linalg.norm(ba)
-    norm_bc = np.linalg.norm(bc)
-    if norm_ba == 0 or norm_bc == 0: return 0
-    cosine_angle = np.dot(ba, bc) / (norm_ba * norm_bc)
-    return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
-
-class CustomEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.ndarray): return obj.tolist()
-        if isinstance(obj, (np.bool_, bool)): return bool(obj)
-        if hasattr(obj, 'name') and hasattr(obj, 'value'): return obj.name
-        if dataclasses.is_dataclass(obj): return dataclasses.asdict(obj)
-        try:
-            return {k: v for k, v in vars(obj).items() if not k.startswith('_')}
-        except TypeError:
-            return {s: getattr(obj, s) for s in dir(obj) if not s.startswith('_') and not callable(getattr(obj, s))}
-
-class CameraThread:
-    def __init__(self, source_front="v_test.mp4", source_side="v_test_bok.mp4", 
-                 json_start_pos="wzniosy_3d_start.json", json_top_pos="wzniosy_3d_top.json", side_offset=0, logging=False):
-        
-        self.logging = logging
-        self.set_finished_event = threading.Event()
-        
-        self.cap_f = cv2.VideoCapture(source_front)
-        self.cap_s = cv2.VideoCapture(source_side)
-        
-        self.w_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.h_f = int(self.cap_f.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.w_s = int(self.cap_s.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.h_s = int(self.cap_s.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        # --- KONFIGURACJA NAGRYWANIA ---
-        fps_f = self.cap_f.get(cv2.CAP_PROP_FPS)
-        fps_s = self.cap_s.get(cv2.CAP_PROP_FPS)
+class VideoProcessor(QObject):
+    rep_finished_signal = Signal(int)
+    set_finished_signal = Signal(int)
+    def __init__(self,cam_front,cam_side):
+        super().__init__()
+        self.running = False
+        cap_f = cv2.VideoCapture(cam_front)
+        cap_s = cv2.VideoCapture(cam_side)
+        self.w_f = int(cap_f.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.h_f = int(cap_f.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.w_s = int(cap_s.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.h_s = int(cap_s.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.cam_front = cam_front
+        self.cam_side = cam_side
+        fps_f = cap_f.get(cv2.CAP_PROP_FPS)
+        fps_s = cap_s.get(cv2.CAP_PROP_FPS)
+        cap_f.release()
+        cap_s.release()
         if fps_f <= 0: fps_f = 30.0
         if fps_s <= 0: fps_s = 30.0
 
+        self.recorder_fps = min(fps_f, fps_s)
+
+        self.synchronizer = None
+        self.queue_synchronized= None
+        self.rep_counter = None
+        self.writer_f = None
+        self.writer_s = None
+        self.front_cam = None
+        self.side_cam = None
+
+        self.fname_f = None
+        self.fname_s = None
+
+        self.finished_frames = None
+
+    def start(self,exercise):
+        cam_queue_front = queue.Queue()
+        cam_queue_side = queue.Queue()
+        self.queue_synchronized = queue.Queue()
+        dir = "camera_recordings/"
+        prefix = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_")
+        if exercise == 0:
+            prefix = prefix + "lateral_raise"
+        elif exercise == 1:
+            prefix = prefix + "dumbbell_curl"
+        else:
+            prefix = prefix + "barbell_row"
+
+        filename_f = prefix + "_front.mp4"
+        filename_s = prefix + "_side.mp4"
+        self.fname_f = filename_f
+        self.fname_s = filename_s
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        print(f"[INFO] Inicjalizacja nagrywania: Front {self.w_f}x{self.h_f} @ {fps_f}FPS")
-        
-        self.writer_f = cv2.VideoWriter('video_front.mp4', fourcc, fps_f, (self.w_f, self.h_f))
-        self.writer_s = cv2.VideoWriter('video_side.mp4', fourcc, fps_s, (self.w_s, self.h_s))
-        
-        ### OPTYMALIZACJA: Kolejka do zapisu wideo ###
-        # maxsize=0 oznacza nieskończoną kolejkę (uwaga na RAM przy bardzo wolnym dysku)
-        # Jeśli dysk jest wolny, ustaw np. maxsize=100, żeby nie "zjadło" całej pamięci
-        self.video_queue = queue.Queue(maxsize=200) 
-        
-        # Uruchamiamy osobny wątek tylko do zapisywania plików
-        self.writer_thread = threading.Thread(target=self._video_writer_worker, daemon=True)
-        self.writer_thread.start()
+        self.writer_f = cv2.VideoWriter(dir + filename_f, fourcc, self.recorder_fps, (self.w_f, self.h_f))
+        self.writer_s = cv2.VideoWriter(dir + filename_s, fourcc, self.recorder_fps, (self.w_s, self.h_s))
 
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        self.synchronizer = VideoSynchronizerAndWriter(cam_queue_front, cam_queue_side, self.queue_synchronized,self.writer_f,self.writer_s)
+        self.rep_counter = RepCounterThread(self.queue_synchronized, exercise)
+        self.rep_counter.rep_finished_signal.connect(self.rep_finished_signal.emit)
+        self.rep_counter.set_finished_signal.connect(self.set_finished_signal.emit)
+        self.front_cam = CameraReader(self.cam_front, cam_queue_front)
+        self.side_cam = CameraReader(self.cam_side, cam_queue_side)
 
-        self.cap_f.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.cap_s.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        if side_offset > 0: self.cap_s.set(cv2.CAP_PROP_POS_FRAMES, side_offset)
-        elif side_offset < 0: self.cap_f.set(cv2.CAP_PROP_POS_FRAMES, abs(side_offset))
-
+        self.front_cam.start()
+        self.side_cam.start()
+        self.synchronizer.start()
+        self.rep_counter.start()
         self.running = True
-        self.frame_count = 0
-        self.coords = None
+
+    def get_frames(self):
+        return self.finished_frames
+
+
+    def stop(self):
+        if not self.running:
+            return
+        if self.front_cam:
+            self.front_cam.stop()
+            self.front_cam.wait()
+
+        if self.side_cam:
+            self.side_cam.stop()
+            self.side_cam.wait()
+
+        if self.synchronizer:
+            self.synchronizer.stop()
+            self.synchronizer.wait()
+
+        if self.rep_counter:
+            self.rep_counter.stop()
+            self.queue_synchronized.put((None,None,None))
+            self.rep_counter.wait()
+
+        self.finished_frames = self.rep_counter.sets_arr
+
+        if self.writer_f:
+            self.writer_f.release()
+        if self.writer_s:
+            self.writer_s.release()
+        self.running = False
+
+class RepCounterThread(QThread):
+    set_finished_signal = Signal(int)
+    rep_finished_signal = Signal(int)
+    def __init__(self, frame_queue, current_exercise):
+        super().__init__()
+
+        # key joint structure:
+        # 0-landmark A, 1-landmark B, 2-landmark-C, 3- tolerancy, 4- angle_down, 5-angle_up
+        key_joints_lat = [
+            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER, DFL.LEFT_HIP, 30, 5, 90], # left arm rise
+            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER, DFL.RIGHT_HIP, 30, 5, 90], # right arm rise
+            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER, DFL.LEFT_SHOULDER, 30, 90, 180], # move must be lateral
+            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER, DFL.RIGHT_SHOULDER, 30, 90, 180]
+        ]
+        # distance to grow when moving up 0- landmark a 1- landmark b 3- up/down reverse
+        move_landmarks_lat = [
+            [DFL.LEFT_WRIST, DFL.LEFT_HIP, True],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_HIP, True]
+        ]
+        # which joints must be visible to count exercise 0- joint 1 - min visibility front 2 - min visibility side
+        visibility_condition_lat = [
+            [DFL.LEFT_WRIST, 0.66, 0],
+            [DFL.RIGHT_WRIST, 0.66, 0],
+            [DFL.RIGHT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_HIP, 0.66, 0],
+            [DFL.RIGHT_HIP, 0.66, 0]
+        ]
+
+        key_joints_row = [
+            [DFL.LEFT_HEEL, DFL.LEFT_HIP, DFL.LEFT_SHOULDER, 50, 130, 130],
+            [DFL.RIGHT_HEEL, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER, 50, 110, 110],
+            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 40, 150, 90],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 40, 150, 90]
+        ]
+        move_landmarks_row = [
+            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER,False],
+            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER,False],
+        ]
+        visibility_condition_row = [
+            [DFL.LEFT_WRIST, 0.66, 0],
+            [DFL.RIGHT_WRIST, 0.66, 0],
+            [DFL.RIGHT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_HEEL, 0.30, 0],
+            [DFL.RIGHT_HEEL, 0.30, 0]
+        ]
+
+        key_joints_curl = [
+            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 40, 150, 60],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 40, 150, 60]
+        ]
+        move_landmarks_curl = [
+            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER,False],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER,False],
+        ]
+        visibility_condition_curl = [
+            [DFL.LEFT_WRIST, 0.66, 0],
+            [DFL.RIGHT_WRIST, 0.66, 0],
+            [DFL.RIGHT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_SHOULDER, 0.66, 0],
+            [DFL.LEFT_HIP, 0.66, 0],
+            [DFL.RIGHT_HIP, 0.66, 0]
+        ]
+
+        self.frames_since_prev_rep = 0
+        self.top_reached = False
+        self.current_frame_data = None
+        self.current_exercise = current_exercise # 0 - raises, 1 - curls, 2 - row
+        self.frames_since_last_rep = 0
+        self.idle_threshold = 100
+        self.prev_frame_move_joints_distance = None
+        self.current_repetition_number = 0
+
+        self.temp_frames = []
         self.reps_arr = []
         self.sets_arr = []
-        self.frames_since_last_rep = 0
-        self.idle_threshold = 300
-        self.temp_frames = []
+        self.move_joints_distance_history = []
 
-        self.current_frame_data = frame_data.FrameData(
-            frame_index=0, set_number=1, repetition_number=0,
-            keypoints=np.zeros((33, 3), dtype=np.float32),
-            phase=frame_data.PhaseEnum.START,
-            tempo=frame_data.TempoEnum.OK,
-            percent_match=None, key_position_flag=False, joints_moving=None
-        )
-        
-        with open(json_start_pos, "r", encoding="utf-8") as f: self.start_pos = json.load(f)
-        with open(json_top_pos, "r", encoding="utf-8") as f: self.top_pos = json.load(f)
+        self.queue = frame_queue
 
-        self.joint_tolerances = {j: 15 for j in JOINT_DEFINITIONS}
-        self.eps = 2
+        self.movement_threshold = 4
+        self.running = False
 
-        self.device = "GPU"
-        model_path = 'pose_landmarker_lite.task'
-        # Inicjalizacja MediaPipe (bez zmian)
-        try:
-            base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.GPU)
-            options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
-            self.detector_f = vision.PoseLandmarker.create_from_options(options)
-            self.detector_s = vision.PoseLandmarker.create_from_options(options)
-        except Exception:
-            base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.CPU)
-            options = vision.PoseLandmarkerOptions(base_options=base_options, output_segmentation_masks=False, running_mode=vision.RunningMode.VIDEO)
-            self.detector_f = vision.PoseLandmarker.create_from_options(options)
-            self.detector_s = vision.PoseLandmarker.create_from_options(options)
+        if current_exercise == 0:
+            self.key_joints = key_joints_lat
+            self.move_landmarks = move_landmarks_lat
+            self.visibility_condition = visibility_condition_lat
+        elif current_exercise == 1:
+            self.key_joints = key_joints_row
+            self.move_landmarks = move_landmarks_row
+            self.visibility_condition = visibility_condition_row
+        else:
+            self.key_joints = key_joints_curl
+            self.move_landmarks = move_landmarks_curl
+            self.visibility_condition = visibility_condition_curl
 
-        self.lastFrameAngles = {}
-        self.top_reached = False
-
-        self.thread = threading.Thread(target=self._update, daemon=True)
-        self.thread.start()
-
-    ### OPTYMALIZACJA: Funkcja wątku zapisującego ###
-    def _video_writer_worker(self):
-        while True:
-            # Pobieramy klatki z kolejki
-            item = self.video_queue.get()
-            
-            # None to sygnał "poison pill" do zatrzymania wątku
-            if item is None:
-                self.video_queue.task_done()
-                break
-                
-            frame_f, frame_s = item
-            
-            # Zapis fizyczny na dysk (to jest wolne, ale nie blokuje już głównego wątku)
-            if frame_f is not None: self.writer_f.write(frame_f)
-            if frame_s is not None: self.writer_s.write(frame_s)
-            
-            self.video_queue.task_done()
-
-    def _update(self):
+    def run(self):
+        self.running = True
         while self.running:
-            ret_f, frame_f = self.cap_f.read()
-            ret_s, frame_s = self.cap_s.read()
-            
-            if not ret_f or not ret_s:
-                self.running = False
+            (frame, v_front, v_side) = self.queue.get()
+            if frame is None:
                 break
-            
-            ### OPTYMALIZACJA: Wrzucamy do kolejki zamiast pisać bezpośrednio ###
-            # Jeśli kolejka jest pełna (wolny dysk), pomijamy zapis, żeby nie zwiesić analizy
-            if not self.video_queue.full():
-                # Kopiujemy (copy), aby uniknąć błędów pamięci, jeśli OpenCV nadpisze bufor
-                self.video_queue.put((frame_f.copy(), frame_s.copy()))
-            
-            ts = int(time.time() * 1000)
-            img_f = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_f)
-            img_s = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_s)
-            
-            future_f = self.executor.submit(self.detector_f.detect_for_video, img_f, ts)
-            future_s = self.executor.submit(self.detector_s.detect_for_video, img_s, ts)
+            self.current_frame_data = frame
+            self.run_exercise_logic(frame,self.key_joints,self.move_landmarks,v_front,v_side,self.visibility_condition)
 
-            res_f = future_f.result()
-            res_s = future_s.result()
+    def stop(self):
+        self.running = False
 
-            if res_f.pose_landmarks and res_s.pose_landmarks:
-                self._process_results(res_f.pose_landmarks[0], res_s.pose_landmarks[0])
+    def calc_angle(self, a, b, c):
+        ba = a - b
+        bc = c - b
+        norm_ba = np.linalg.norm(ba)
+        norm_bc = np.linalg.norm(bc)
+        if norm_ba == 0 or norm_bc == 0: return 0
+        cosine_angle = np.dot(ba, bc) / (norm_ba * norm_bc)
+        return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
 
-            self.frame_count += 1
-
-    def _process_results(self, lms_f, lms_s):
-        kp = np.array([
-            [lms_f[i].x * self.w_f, lms_f[i].y * self.h_f, lms_s[i].x * self.w_f]
-            for i in range(33)
-        ], dtype=np.float32)
-        
-        self.current_frame_data.keypoints = kp
-        self.coords = {LANDMARK_NAMES[i]: kp[i] for i in range(33)}
-        self._run_exercise_logic()
-
-    def _run_exercise_logic(self):
-        # (Bez zmian w logice)
+    def run_exercise_logic(self,frame,key_joints, move_landmarks,v_front,v_side,visibility_condition):
         starting_check, top_check = [], []
+        invisible_flag = False
         moving_any_up, moving_any_down = False, False
-
-        for j_name, idx_names in JOINT_DEFINITIONS.items():
+        fk = frame.keypoints
+        for joint in key_joints:
             try:
-                a, b, c = self.coords[idx_names[0]], self.coords[idx_names[1]], self.coords[idx_names[2]]
-                angle = calc_angle(a, b, c)
-                tol = self.joint_tolerances.get(j_name, 15)
-                starting_check.append(abs(angle - self.start_pos.get(j_name, 0)) < tol)
-                top_check.append(abs(angle - self.top_pos.get(j_name, 0)) < tol)
-                if j_name in self.lastFrameAngles:
-                    diff = angle - self.lastFrameAngles[j_name]
-                    if diff > self.eps: moving_any_up = True
-                    if diff < -self.eps: moving_any_down = True
-                self.lastFrameAngles[j_name] = angle
-            except: continue
-        
-        isStarting = all(starting_check) if starting_check else False
-        isTop = all(top_check) if top_check else False
+                a, b, c = fk[joint[0]], fk[joint[1]], fk[joint[2]]
+                angle = self.calc_angle(a, b, c)
+                tol = joint[3]
+                starting_check.append(abs(angle - joint[4]) < tol)
+                top_check.append(abs(angle - joint[5]) < tol)
+            except:
+                continue
+        for jv in visibility_condition:
+            joint = jv[0]
+            v_f = jv[1]
+            v_s = jv[2]
+            if v_front[joint.value] < v_f or v_side[joint.value] < v_s:
+                invisible_flag = True
 
-        if isStarting:
+        move_distances = [] # replace with np.array?
+        for move_landmark in move_landmarks:
+            dist = np.linalg.norm(
+                frame.keypoints[move_landmark[0]] -
+                frame.keypoints[move_landmark[1]]
+            )
+            move_distances.append(dist)
+        diffs = []
+        if self.prev_frame_move_joints_distance:  # last frame is actually 4 frames behind current
+            for i in range(len(move_distances)):
+                diff = self.prev_frame_move_joints_distance[i] - move_distances[i]
+                diffs.append(diff)
+            if all(df > self.movement_threshold for df in diffs):
+                moving_any_up = True
+            elif all(df < -self.movement_threshold for df in diffs):
+                moving_any_down = True
+            if move_landmarks[0][2]: # reverse
+                if moving_any_up:
+                    moving_any_up = False
+                    moving_any_down = True
+                elif moving_any_down:
+                    moving_any_down = False
+                    moving_any_up = True
+
+        self.move_joints_distance_history.insert(0, move_distances)
+        if len(self.move_joints_distance_history) >= 4:
+            self.prev_frame_move_joints_distance = self.move_joints_distance_history.pop()
+
+        is_starting = all(starting_check) if starting_check and not invisible_flag else False
+        is_top = all(top_check) if top_check and not invisible_flag else False
+
+        if is_starting:
             self.current_frame_data.phase = frame_data.PhaseEnum.START
-            if self.top_reached: self._handle_repetition_complete()
-        elif isTop:
+            if self.top_reached:
+                if not moving_any_down:
+                    self.handle_repetition_complete()
+        elif is_top:
             self.current_frame_data.phase = frame_data.PhaseEnum.PAUSE
             self.top_reached = True
-        elif moving_any_up:
+        if moving_any_up:
+            # print("up up up")
             self.current_frame_data.phase = frame_data.PhaseEnum.LIFT
         elif moving_any_down:
+            # print("down down down")
             self.current_frame_data.phase = frame_data.PhaseEnum.LOWER
+        elif self.top_reached:
+            self.current_frame_data.phase = frame_data.PhaseEnum.PAUSE
+            # print("stop")
+        else:
+            self.current_frame_data.phase = frame_data.PhaseEnum.START
+            #print("start")
 
         self.frames_since_last_rep += 1
         if self.frames_since_last_rep >= self.idle_threshold and self.reps_arr:
-            self._finish_set()
+            self.finish_set()
+        self.temp_frames.append(copy.copy(frame))
+        if self.current_frame_data.phase == frame_data.PhaseEnum.START: # maximum of 4 starts
+            self.temp_frames = self.temp_frames[-5:]
 
-        self.current_frame_data.frame_index = self.frame_count
-        self.current_frame_data.key_position_flag = (isStarting or isTop)
-        self.temp_frames.append(copy.copy(self.current_frame_data))
 
-    def _handle_repetition_complete(self):
-        self.current_frame_data.repetition_number += 1
-        cleaned_rep = self._process_repetition(self.temp_frames)
-        self.reps_arr.append(cleaned_rep)
+    def handle_repetition_complete(self):
+        #print("repetition complete",self.current_repetition_number)
+        self.current_repetition_number += 1
+        self.clean_repetition(self.temp_frames)
+        self.reps_arr.append(self.temp_frames)
         self.frames_since_last_rep = 0
-        rep_n, set_n = self.current_frame_data.repetition_number, self.current_frame_data.set_number
-        if self.logging:
-            def save_task(data, r, s):
-                try:
-                    with open(f"rep_{r}_set{s}.json", "w") as f: json.dump(data, f, cls=CustomEncoder)
-                except Exception: pass
-            threading.Thread(target=save_task, args=(cleaned_rep, rep_n, set_n)).start()
         self.temp_frames = []
         self.top_reached = False
+        self.rep_finished_signal.emit(self.current_repetition_number)
 
-    def _finish_set(self):
+    def finish_set(self):
         if self.reps_arr:
             self.sets_arr.append(list(self.reps_arr))
             set_n = len(self.sets_arr)
-            if self.logging:
-                try:
-                    with open(f"set_{set_n}.json", "w") as f: json.dump(self.reps_arr, f, cls=CustomEncoder)
-                except Exception: pass
             self.reps_arr = []
             self.current_frame_data.set_number += 1
             self.current_frame_data.repetition_number = 0
             self.frames_since_last_rep = 0
-            print(f"[THREAD] Wykryto koniec serii nr {set_n}. Wysyłam sygnał.")
-            self.set_finished_event.set()
+            self.set_finished_signal.emit(set_n)
+            self.current_frame_data.set_number = 0
 
-    def _process_repetition(self, frames_list):
+    def clean_repetition(self, frames_list):
+        self.remove_rep_outliers(frames_list)
         pause_indices = [i for i, f in enumerate(frames_list) if f.phase == frame_data.PhaseEnum.PAUSE]
         if not pause_indices: return frames_list
         first_p, last_p = pause_indices[0], pause_indices[-1]
         for i, frame in enumerate(frames_list):
-            if i < first_p and frame.phase != frame_data.PhaseEnum.START: frame.phase = frame_data.PhaseEnum.LIFT
-            elif i > last_p and frame.phase != frame_data.PhaseEnum.START: frame.phase = frame_data.PhaseEnum.LOWER
-            elif first_p <= i <= last_p: frame.phase = frame_data.PhaseEnum.PAUSE
+            if i < first_p and frame.phase != frame_data.PhaseEnum.START:
+                frame.phase = frame_data.PhaseEnum.LIFT
+            elif i > last_p and frame.phase != frame_data.PhaseEnum.START:
+                frame.phase = frame_data.PhaseEnum.LOWER
+            elif first_p <= i <= last_p:
+                frame.phase = frame_data.PhaseEnum.PAUSE
         return frames_list
+
+    def remove_rep_outliers(self, frames_list):
+        for i in range(1, len(frames_list) - 1):
+            f_prev = frames_list[i - 1]
+            f_curr = frames_list[i]
+            f_next = frames_list[i + 1]
+            if f_curr != f_prev and f_prev == f_next:
+                frames_list[i] = f_prev
+
+class VideoSynchronizerAndWriter(QThread):
+    def __init__(self, queue_front, queue_side,output_queue, writer_front, writer_side):
+        super().__init__()
+        self.output_queue = output_queue
+        self.writer_front = writer_front
+        self.writer_side = writer_side
+        self.queue_front = queue_front
+        self.queue_side = queue_side
+        self.output_queue = output_queue
+        self.running = False
+
+    def run(self):
+        self.running = True
+        frame_counter = 0
+        while self.running:
+            if self.queue_front.empty() or self.queue_side.empty():
+                time.sleep(0.01)
+                continue
+            #get oldest frames
+            kp_f, ts_f, frame_f = self.queue_front.queue[0]
+            kp_s, ts_s, frame_s = self.queue_side.queue[0]
+            #if timestamps close process as a pair
+            if abs(ts_f - ts_s) <= 35:
+                frame_counter += 1
+                #remove frames from queue
+                self.queue_front.get()
+                self.queue_side.get()
+                #display
+                # cv2.imshow('frame2', frame_f)
+                # cv2.imshow('frame', frame_s)
+                # cv2.waitKey(1)
+                #write to video
+                self.writer_front.write(frame_f)
+                self.writer_side.write(frame_s)
+                # output data for processing
+                if kp_f is not None and kp_s is not None:
+                    kp_output = self.combine_views(kp_f, kp_s)
+                    current_frame_data = frame_data.FrameData(
+                        frame_index=frame_counter, set_number=0, repetition_number=0,
+                        keypoints=kp_output,
+                        keypoints_side = kp_s,
+                        phase = frame_data.PhaseEnum.START,
+                        tempo = frame_data.TempoEnum.OK,
+                        percent_match = np.float32(0), key_position_flag = np.bool_(0),
+                        joints_moving = np.zeros(15,dtype=np.bool_),
+                        joints_wrong_angles=np.zeros(15, dtype=np.bool_)
+                    )
+                    v_front = self.get_visibility(kp_f)
+                    v_side = self.get_visibility(kp_s)
+                    self.output_queue.put((current_frame_data,v_front,v_side))
+            #remove older frame
+            elif ts_f < ts_s:
+                self.queue_front.get()
+            else:
+                self.queue_side.get()
+    def stop(self):
+        self.running = False
+        cv2.destroyAllWindows()
+
+    def combine_views(self,kp_f,kp_s):
+        height_f = kp_f[14][1] - kp_f[0][1] # y delta from nose to heel
+        height_s = kp_s[14][1] - kp_s[0][1]
+        if height_s == 0:
+            correction = 1
+        else:
+            correction = height_f / height_s
+        kp = np.array([
+            [kp_f[i,0], kp_f[i,1],kp_s[i,0]*correction]
+            for i in range(14)
+        ], dtype=np.float32)
+        return kp
+
+    def get_visibility(self,kp):
+        return np.array([k[2] for k in kp])
+
+
+class CameraReader(QThread): # process each frame and put to queue
+    def __init__(self, cam, cam_queue):
+        super().__init__()
+        self.cap = None
+        self.cap_w = None
+        self.cap_h = None
+        self.detector = None
+        self.keypoints_front = None
+        self.keypoints_side = None
+        self.init_camera(cam)
+        self.queue = cam_queue
+        self.init_mediapipe()
+        self.running = False
+
+    def init_camera(self,cam = 0):
+        self.cap = cv2.VideoCapture(cam)
+        self.cap_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.cap_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    def init_mediapipe(self):
+        model_path = 'pose_landmarker_lite.task'
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        options = vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            output_segmentation_masks=False,
+            running_mode=vision.RunningMode.VIDEO,
+        )
+        self.detector = vision.PoseLandmarker.create_from_options(options)
+
+    def run(self):
+        ctr = 0
+        self.running = True
+        kp = None
+        while self.running:
+            ret, frame = self.cap.read()
+            ts = int(time.time() * 1000)
+            if not ret:
+                break
+            ctr += 1
+            if ctr >= 0:
+                ctr = 0
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                result = self.detector.detect_for_video(img, ts)
+                if result.pose_landmarks:
+                    avg_visibility = 0
+                    rpl = result.pose_landmarks[0]
+                    kp = np.array([
+                        [rpl[i.value].x * self.cap_w, rpl[i.value].y * self.cap_h,rpl[i.value].visibility]
+                        for i in DATAFRAME_LANDMARKS
+                    ], dtype=np.float32)
+            self.queue.put((kp, ts, frame))
+        self.cap.release()
 
     def stop(self):
         self.running = False
-        self.thread.join()
-        
-        ### OPTYMALIZACJA: Sprzątanie wątku zapisu ###
-        print("[INFO] Czekam na zakończenie zapisu wideo z bufora...")
-        self.video_queue.put(None) # Wysyłamy sygnał stopu
-        self.writer_thread.join()  # Czekamy aż wszystko się zapisze
-        
-        if hasattr(self, 'writer_f'): self.writer_f.release()
-        if hasattr(self, 'writer_s'): self.writer_s.release()
-        self.cap_f.release()
-        self.cap_s.release()
-        print("[INFO] Zakończono nagrywanie i analizę.")
 
-if __name__ == "__main__":
-    cam = CameraThread(side_offset=15)
-    print("\n" + "="*85)
-    print(f" ANALIZA + NAGRYWANIE (ASYNC) | URZĄDZENIE: {cam.device}")
-    print(" Naciśnij Ctrl+C, aby zakończyć.")
-    print("="*85 + "\n")
+if __name__ == '__main__':
+    vp = VideoProcessor(0,"http://192.168.246.46:8080/video")
+    vp.start(0)
+    ctr = 0
+    while True:
+        ctr += 1
 
-    prev_frame_count, prev_time, fps = 0, time.time(), 0
-
-    try:
-        while cam.running:
-            current_time = time.time()
-            f_idx = cam.frame_count
-            if cam.set_finished_event.is_set():
-                print(f"\n[EVENT] KONIEC SERII! (Suma: {len(cam.sets_arr)})")
-                cam.set_finished_event.clear()
-            
-            if current_time - prev_time > 0.5:
-                fps = (f_idx - prev_frame_count) / (current_time - prev_time)
-                prev_frame_count, prev_time = f_idx, current_time
-            
-            # Info o wielkości kolejki zapisu pozwala monitorować czy dysk wyrabia
-            q_size = cam.video_queue.qsize()
-            
-            phase = str(cam.current_frame_data.phase)
-            if hasattr(cam.current_frame_data.phase, 'name'): phase = cam.current_frame_data.phase.name
-            
-            print(f"| FPS: {fps:.1f} | Q: {q_size} | Seria: {cam.current_frame_data.set_number} | Powt: {cam.current_frame_data.repetition_number} | {phase.ljust(6)}", end="\r", flush=True)
-            time.sleep(0.01)
-
-    except KeyboardInterrupt:
-        print("\n\n[ZATRZYMANO PRZEZ UŻYTKOWNIKA]")
-    finally:
-        cam.stop()
+        print(ctr)
+        if ctr >= 100:
+            vp.stop()
+            break
+        time.sleep(0.01)
