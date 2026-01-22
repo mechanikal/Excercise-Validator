@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QApplication, QStackedWidget
 from PySide6.QtCore import Qt
 
 import CameraThread
+import ExerciseValidator
 import GUIScreens as gui
 import VideoRenderer
 from voice_interface import voice
@@ -24,7 +25,7 @@ class App(QStackedWidget):
         self.voice_interface = voice.Voice()  # receives and validates voice commands sending appropriate signals to appropriate component
         self.video_processor = CameraThread.VideoProcessor(0,"http://192.168.70.220:8080/video")  # processes camera feed from 2 cameras, saves the video and produces DataFrame objects
         self.graphical_renderer = VideoRenderer.VideoRenderer()  # reads video from file, annotates each frame with feedback based on completed DataFrame objects, saves modified frames as video
-        self.exercise_validator = None  # completes FrameData objects
+        self.exercise_validator = ExerciseValidator.ExerciseValidator()  # completes FrameData objects
 
         # GUI SCREENS
         self.menu = gui.MainMenu()
@@ -137,6 +138,7 @@ class App(QStackedWidget):
     def process_exercise(self):
         if self.exercise_waiting:
             self.video_data = self.video_processor.get_frames()
+            self.exercise_validator.validate(self.video_data,self.last_exercise)
             if len(self.video_data) == 0:
                 self.exercise_waiting = False
                 return
