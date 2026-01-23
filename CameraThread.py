@@ -30,6 +30,7 @@ DATAFRAME_LANDMARKS = [
     PoseLandmark.RIGHT_EYE,
     PoseLandmark.NOSE,
 ]
+
 class DFL(IntEnum):
     LEFT_HEEL = 0
     RIGHT_HEEL = 1
@@ -46,7 +47,6 @@ class DFL(IntEnum):
     LEFT_EYE = 12
     RIGHT_EYE = 13
     NOSE = 14
-
 
 class VideoProcessor(QObject):
     rep_finished_signal = Signal(int)
@@ -220,7 +220,7 @@ class RepCounterThread(QThread):
         self.current_frame_data = None
         self.current_exercise = current_exercise # 0 - raises, 1 - curls, 2 - row
         self.frames_since_last_rep = 0
-        self.idle_threshold = 100
+        self.idle_threshold = 300
         self.prev_frame_move_joints_distance = None
         self.current_repetition_number = 0
 
@@ -255,6 +255,7 @@ class RepCounterThread(QThread):
                 break
             self.current_frame_data = frame
             self.run_exercise_logic(frame,self.key_joints,self.move_landmarks,v_front,v_side,self.visibility_condition)
+        self.finish_set()
 
     def stop(self):
         self.running = False
@@ -365,7 +366,7 @@ class RepCounterThread(QThread):
             set_n = len(self.sets_arr)
             self.reps_arr = []
             self.current_frame_data.set_number += 1
-            self.current_frame_data.repetition_number = 0
+            self.current_repetition_number = 0
             self.frames_since_last_rep = 0
             self.set_finished_signal.emit(set_n)
             self.current_frame_data.set_number = 0

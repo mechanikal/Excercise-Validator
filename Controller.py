@@ -53,7 +53,7 @@ class App(QStackedWidget):
         self.setCurrentIndex(0)
 
         self.menu.launch_trainer.connect(self.goto_idle)
-        self.menu.exit_app.connect(lambda: sys.exit(0))
+        self.menu.exit_app.connect(self.turn_off)
         self.menu.open_docs.connect(lambda: print("docs TODO"))
         self.menu.open_saved.connect(self.goto_list)
         self.idle.choose_exercise.connect(self.goto_selector)
@@ -79,6 +79,10 @@ class App(QStackedWidget):
 
         self.frames = None
 
+    def turn_off(self):
+        self.voice_interface.stop()
+        self.video_processor.stop()
+        QApplication.quit()
     def goto_menu(self):
         if self.video_processor.running:
             self.video_processor.stop()
@@ -100,8 +104,6 @@ class App(QStackedWidget):
         self.setCurrentIndex(1)
         self.timer_screen.start()
     def goto_loading(self):
-        self.graphical_renderer.set_input(self.recordings_filenames,self.video_data)
-        self.graphical_renderer.start()
         self.setCurrentIndex(7)
     def goto_list(self):
         self.setCurrentIndex(2)
@@ -137,16 +139,19 @@ class App(QStackedWidget):
 
     def process_exercise(self):
         if self.exercise_waiting:
+            self.goto_loading()
             self.video_data = self.video_processor.get_frames()
-            self.exercise_validator.validate(self.video_data,self.last_exercise)
             if len(self.video_data) == 0:
                 self.exercise_waiting = False
                 return
+            for rep_list in self.video_data:
+                for rep in rep_list:
+                    self.exercise_validator.validate(rep,self.last_exercise)
             self.filename_front = self.video_processor.fname_f
             self.filename_side = self.video_processor.fname_s
-            self.goto_loading()
             self.graphical_renderer.process_file(self.filename_front, self.video_data,False)
             self.graphical_renderer.process_file(self.filename_side, self.video_data,True)
+            self.goto_loading()
         self.exercise_waiting = False
 
 

@@ -1,6 +1,6 @@
 import cv2
 from PySide6.QtCore import QThread, Signal
-
+import os
 import frame_data as fd
 
 class VideoRenderer(QThread):
@@ -67,7 +67,7 @@ class VideoRenderer(QThread):
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         new_filename = filename.replace('.mp4','_report.mp4')
-        new_filename = 'video_reports\\' + new_filename
+        new_filename = 'video_reports/' + new_filename
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(new_filename, fourcc, fps, (width, height))
         frame_index = 0
@@ -92,6 +92,8 @@ class VideoRenderer(QThread):
         return frame
 
     def process_frame(self,frame,frame_data,side_view):
+        if frame_data.key_position_flag:
+            self.last_position_match = frame_data.percent_match
         text = f"{self.last_position_match:.2f}"
         self.overlay_text(frame, text,scale=3)
         if frame_data.tempo == fd.TempoEnum.OK:
