@@ -9,7 +9,7 @@ from voice_interface import state
 from PySide6.QtCore import Slot
 
 FRONTAL_CAMERA = 0
-LATERAL_CAMERA = "http://192.168.70.220:8080/video"
+LATERAL_CAMERA = "http://192.168.138.221:8080/video"
 
 class State(enum.IntEnum):
   START = 0
@@ -88,16 +88,19 @@ class App(QStackedWidget):
             self.video_processor.stop()
             self.process_exercise()
         self.setCurrentIndex(0)
+        self.voice_interface.set_state(State.CHOOSE_COMMAND)
     def goto_idle(self):
         if self.video_processor.running:
             self.video_processor.stop()
             self.process_exercise()
         self.setCurrentIndex(5)
+        self.voice_interface.set_state(State.CHOOSE_COMMAND)
     def goto_selector(self):
         if self.video_processor.running:
             self.video_processor.stop()
             self.process_exercise()
         self.setCurrentIndex(6)
+        self.voice_interface.set_state(State.CHOOSE_EXERCISE)
     def goto_gif(self):
         self.setCurrentIndex(4)
     def goto_timer(self):
@@ -130,6 +133,7 @@ class App(QStackedWidget):
         self.goto_gif()
         self.exercise_waiting = True
     def start_last_exercise(self):
+        self.voice_interface.set_state(State.TRAINING_IN_PROGRESS)
         if self.last_exercise == 'lateral':
             self.start_lateral()
         elif self.last_exercise == 'curl':
@@ -144,9 +148,20 @@ class App(QStackedWidget):
             if len(self.video_data) == 0:
                 self.exercise_waiting = False
                 return
-            for rep_list in self.video_data:
-                for rep in rep_list:
-                    self.exercise_validator.validate(rep,self.last_exercise)
+            if self.last_exercise == 'curl':
+                for rep_list in self.video_data:
+                    even = 0
+                    for rep in rep_list:
+                        even = even + 1
+                        if even % 2 == 0:
+                            self.exercise_validator.validate(rep, 'curl right')
+                        else:
+                            self.exercise_validator.validate(rep, 'curl left')
+
+            else:
+                for rep_list in self.video_data:
+                    for rep in rep_list:
+                        self.exercise_validator.validate(rep,self.last_exercise)
             self.filename_front = self.video_processor.fname_f
             self.filename_side = self.video_processor.fname_s
             self.graphical_renderer.process_file(self.filename_front, self.video_data,False)
@@ -176,10 +191,8 @@ class App(QStackedWidget):
             self.voice_interface.set_state(State.TRAINING_IN_PROGRESS)
             self.start_row()
         if command == state.FINISH_EXERCISE_CMD:
-            self.voice_interface.set_state(State.CHOOSE_COMMAND)
+            self.voice_interface.set_state(State.CHOOSE_EXERCISE)
             self.goto_selector()
-        if command == state.UNRECOGNIZED_CMD:
-          self.voice_interface.say("nie zrozumiałem")
 
     @Slot(int)
     def counter_rep(self, rep):

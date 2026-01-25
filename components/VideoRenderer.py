@@ -1,22 +1,19 @@
 import cv2
 from PySide6.QtCore import QThread, Signal
-import os
 import frame_data as fd
+from frame_data import PhaseEnum
+
 
 class VideoRenderer(QThread):
     finished = Signal()
     def __init__(self):
         super().__init__()
         self.last_position_match = 0
-        self.watch_OK = cv2.imread("assets/watch_ok.png", cv2.IMREAD_UNCHANGED)
-        self.watch_TOO_SLOW = cv2.imread("assets/watch_slow.png", cv2.IMREAD_UNCHANGED)
-        self.watch_TOO_FAST = cv2.imread("assets/watch_fast.png", cv2.IMREAD_UNCHANGED)
+        self.watch_OK = cv2.imread("/assets/watch_ok.png", cv2.IMREAD_UNCHANGED)
+        self.watch_TOO_SLOW = cv2.imread("/assets/watch_slow.png", cv2.IMREAD_UNCHANGED)
+        self.watch_TOO_FAST = cv2.imread("/assets/watch_fast.png", cv2.IMREAD_UNCHANGED)
         self.filenames = None
         self.datas = None
-
-    # relic
-    def run(self):
-        self.process_files(self.filenames,self.datas)
 
     def set_input(self,filenames,datas):
         self.filenames = filenames
@@ -50,11 +47,6 @@ class VideoRenderer(QThread):
         frame[y:y + new_h, x:x + new_w] = roi
         return frame
 
-    #relic
-    def process_files(self,filenames,video_datas):
-        for filename,video_data in zip(filenames,video_datas):
-            self.process_file(filename,video_data)
-        self.finished.emit()
 
     def process_file(self, filename,video_data,side_view):
         full_filename = 'camera_recordings/' + filename
@@ -83,19 +75,37 @@ class VideoRenderer(QThread):
         cap.release()
         writer.release()
 
-    def overlay_text(self, frame, text, scale=1.0, color=(255, 255, 255), thickness=2, margin=10):
+    def overlay_text(self, frame, text, left =False, down = False, scale=1.0, color=(255, 255, 255), thickness=2, margin=10):
         frame_h, frame_w = frame.shape[:2]
         (text_w, text_h), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
-        x = frame_w - text_w - margin
-        y = text_h + margin
+        if left:
+            x = 0
+        else:
+            x = frame_w - text_w - margin
+        if down:
+            y = frame_h - text_h - margin
+        else:
+            y = text_h + margin
         cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_DUPLEX, scale, color, thickness, cv2.LINE_AA)
         return frame
 
+
     def process_frame(self,frame,frame_data,side_view):
+        if frame is None:
+            return frame
         if frame_data.key_position_flag:
             self.last_position_match = frame_data.percent_match
         text = f"{self.last_position_match:.2f}"
-        self.overlay_text(frame, text,scale=3)
+        self.overlay_text(frame, text,scale=2,color=(175,175,175))
+        if frame_data.phase == PhaseEnum.LOWER:
+            text = 'LOWER'
+        elif frame_data.phase == PhaseEnum.PAUSE:
+            text = 'PAUSE'
+        else:
+            text = 'LIFT'
+        self.overlay_text(frame, text,left = True, scale=1,color=(0,0,0))
+        text = f"{frame_data.repetition_number:d}"
+        self.overlay_text(frame, text,down = True, scale=2, color=(0, 0, 0))
         if frame_data.tempo == fd.TempoEnum.OK:
             icon = self.watch_OK
         elif frame_data.tempo == fd.TempoEnum.TOO_FAST:

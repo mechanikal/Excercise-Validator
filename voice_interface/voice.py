@@ -5,9 +5,7 @@ from time import sleep
 
 import speech_recognition as sr
 from speech_recognition.exceptions import UnknownValueError
-from PySide6.QtCore import QObject, Signal, Slot, QThread
-from PySide6.QtWidgets import QApplication
-import sys
+from PySide6.QtCore import Signal, QThread
 from threading import Event
 import pyttsx3
 from voice_interface import state
@@ -44,7 +42,6 @@ class Voice(QThread):
 
   def stop(self):
     self.stop_recognizing = True
-    sleep(2)
     self.mic.__exit__(None, None, None)
 
   def run(self):
@@ -54,7 +51,7 @@ class Voice(QThread):
 
     while not self.stop_recognizing:
       try:
-       audio = recognizer.listen(voice_source, timeout=1)
+       audio = recognizer.listen(voice_source, timeout=3)
        text = recognizer.recognize_google(audio, language="pl-PL")
       except UnknownValueError:
         continue

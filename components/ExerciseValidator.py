@@ -25,18 +25,21 @@ class ExerciseValidator:
     def __init__(self):
         self.lat_CE = CorrectExercise(4)
         self.row_CE = CorrectExercise(4)
-        self.curl_CE = CorrectExercise(4)
+        self.curl_right_CE = CorrectExercise(4)
+        self.curl_left_CE = CorrectExercise(4)
         #lat
         lat_key_joints = np.array(
                 [[DFL.RIGHT_HEEL, DFL.RIGHT_KNEE, DFL.RIGHT_HIP], [DFL.LEFT_HEEL, DFL.LEFT_KNEE, DFL.LEFT_HIP],
                 [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER], [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER],
-                [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER, DFL.LEFT_SHOULDER], [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER, DFL.RIGHT_SHOULDER],
+                [DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, DFL.RIGHT_HIP], [DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, DFL.LEFT_HIP],
                 [DFL.RIGHT_KNEE, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER], [DFL.LEFT_KNEE, DFL.LEFT_HIP, DFL.LEFT_SHOULDER]])
-        lat_down_angles = np.array([170,170, 150,150, 90,90, 170,170])
-        lat_up_angles = np.array([170,170, 150,150, 170,170, 170,170])
-        lat_tolerancies = np.array([20,20, 10,10, 10,10, 10,10])/180
+        lat_down_angles = np.array([170,170, 170,170, 20,20, 170,170])
+        lat_up_angles = np.array([170,170, 170,170, 80,80, 170,170])
+        lat_tolerancies_up = np.array([20,20, 20,20, 10,10, 10,10])/180
+        lat_tolerancies_down = np.array([20,20, 50,50, 40,40, 10,10])/180
         lat_immovable = np.array([DFL.RIGHT_KNEE,DFL.LEFT_KNEE,DFL.LEFT_HIP,DFL.RIGHT_HIP,DFL.RIGHT_SHOULDER,DFL.LEFT_SHOULDER])
-        lat_tempos = [-1,40,30,70]
+        timescale = 1/2
+        lat_tempos = [-1,40*timescale,30*timescale,100*timescale]
         #row
         row_key_joints = np.array(
                 [[DFL.RIGHT_HEEL, DFL.RIGHT_KNEE, DFL.RIGHT_HIP], [DFL.LEFT_HEEL, DFL.LEFT_KNEE, DFL.LEFT_HIP],
@@ -44,9 +47,10 @@ class ExerciseValidator:
                  [DFL.RIGHT_HEEL, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER],[DFL.LEFT_HEEL, DFL.LEFT_HIP, DFL.LEFT_SHOULDER]])
         row_down_angles = np.array([165,165, 160,160, 120,120])
         row_up_angles = np.array([140,140, 100,100, 120,120])
-        row_tolerancies = np.array([10,10, 20,20, 15,15])/180
+        row_tolerancies_up = np.array([20,20, 20,20, 15,15])/180
+        row_tolerancies_down = np.array([40,40, 30,30, 15,15])/180
         row_immovable = np.array([DFL.RIGHT_KNEE,DFL.LEFT_KNEE,DFL.LEFT_HIP,DFL.RIGHT_HIP,DFL.RIGHT_SHOULDER,DFL.LEFT_SHOULDER])
-        row_tempos = [-1, 45, 15, 90]
+        row_tempos = [-1, 40*timescale, 50*timescale, 40*timescale]
         #curl
         crl_key_joints = np.array(
                 [[DFL.RIGHT_HEEL, DFL.RIGHT_KNEE, DFL.RIGHT_HIP], [DFL.LEFT_HEEL, DFL.LEFT_KNEE, DFL.LEFT_HIP],
@@ -54,26 +58,35 @@ class ExerciseValidator:
                  [DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, DFL.RIGHT_HIP],[DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, DFL.LEFT_HIP],
                  [DFL.RIGHT_HEEL, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER],[DFL.LEFT_HEEL, DFL.LEFT_HIP, DFL.LEFT_SHOULDER]])
         crl_down_angles = np.array([170,170, 170,170, 15,15, 170,170])
-        crl_up_angles = np.array([170,170, 35,35, 15,15, 170,170])
-        crl_tolerancies = np.array([10,10, 10,10, 10,10, 10,10])/180
+        crl_up_angles = np.array([170,170, 180,35, 15,15, 170,170])
+        crl_up_angles_switched = np.array([170,170, 35,180, 15,15, 170,170])
+        crl_tolerancies_up = np.array([20,20, 40,40, 10,10, 10,10])/180
+        crl_tolerancies_down = np.array([20,20, 40,40, 10,10, 10,10]) / 180
         crl_immovable = np.array([DFL.RIGHT_KNEE,DFL.LEFT_KNEE,DFL.LEFT_HIP,DFL.RIGHT_HIP,DFL.RIGHT_SHOULDER,DFL.LEFT_SHOULDER])
-        crl_tempos = [-1, 45, 15, 90]
+        crl_tempos = [-1, 40*timescale, 25*timescale, 40*timescale]
+        curl_movement_tolerancy = 3
+        self.curl_right_CE.movement_tolerancy = curl_movement_tolerancy
+        self.curl_left_CE.movement_tolerancy = curl_movement_tolerancy
         # phase START, pos start
-        self.lat_CE.add_correct_position_for_phase(lat_key_joints,lat_down_angles,lat_tolerancies,lat_tempos[0],lat_immovable)
-        self.row_CE.add_correct_position_for_phase(row_key_joints,row_down_angles,row_tolerancies,row_tempos[0],row_immovable)
-        self.curl_CE.add_correct_position_for_phase(crl_key_joints,crl_down_angles,crl_tolerancies,crl_tempos[0],crl_immovable)
+        self.lat_CE.add_correct_position_for_phase(lat_key_joints,lat_down_angles,lat_tolerancies_down,lat_tempos[0],lat_immovable)
+        self.row_CE.add_correct_position_for_phase(row_key_joints,row_down_angles,row_tolerancies_down,row_tempos[0],row_immovable)
+        self.curl_right_CE.add_correct_position_for_phase(crl_key_joints,crl_down_angles,crl_tolerancies_down,crl_tempos[0],crl_immovable)
+        self.curl_left_CE.add_correct_position_for_phase(crl_key_joints, crl_down_angles, crl_tolerancies_down,crl_tempos[0], crl_immovable)
         # phase LIFT, pos up start
-        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_up_angles, lat_tolerancies, lat_tempos[1],lat_immovable)
-        self.row_CE.add_correct_position_for_phase(row_key_joints, row_up_angles, row_tolerancies, row_tempos[1],row_immovable)
-        self.curl_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles, crl_tolerancies, crl_tempos[1],crl_immovable)
+        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_up_angles, lat_tolerancies_up, lat_tempos[1],lat_immovable)
+        self.row_CE.add_correct_position_for_phase(row_key_joints, row_up_angles, row_tolerancies_up, row_tempos[1],row_immovable)
+        self.curl_right_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles, crl_tolerancies_up, crl_tempos[1],crl_immovable)
+        self.curl_left_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles_switched, crl_tolerancies_up,crl_tempos[1], crl_immovable)
         # phase PAUSE, pos up end
-        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_up_angles, lat_tolerancies, lat_tempos[2],lat_immovable)
-        self.row_CE.add_correct_position_for_phase(row_key_joints, row_up_angles, row_tolerancies, row_tempos[2],row_immovable)
-        self.curl_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles, crl_tolerancies, crl_tempos[2],crl_immovable)
+        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_up_angles, lat_tolerancies_up, lat_tempos[2],lat_immovable)
+        self.row_CE.add_correct_position_for_phase(row_key_joints, row_up_angles, row_tolerancies_up, row_tempos[2],row_immovable)
+        self.curl_right_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles, crl_tolerancies_up, crl_tempos[2],crl_immovable)
+        self.curl_left_CE.add_correct_position_for_phase(crl_key_joints, crl_up_angles_switched, crl_tolerancies_up,crl_tempos[2], crl_immovable)
         # phase LOWER, pos finish (same as start)
-        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_down_angles, lat_tolerancies, lat_tempos[3],lat_immovable)
-        self.row_CE.add_correct_position_for_phase(row_key_joints, row_down_angles, row_tolerancies, row_tempos[3],row_immovable)
-        self.curl_CE.add_correct_position_for_phase(crl_key_joints, crl_down_angles, crl_tolerancies, crl_tempos[3],crl_immovable)
+        self.lat_CE.add_correct_position_for_phase(lat_key_joints, lat_down_angles, lat_tolerancies_down, lat_tempos[3],lat_immovable)
+        self.row_CE.add_correct_position_for_phase(row_key_joints, row_down_angles, row_tolerancies_down, row_tempos[3],row_immovable)
+        self.curl_right_CE.add_correct_position_for_phase(crl_key_joints, crl_down_angles, crl_tolerancies_down, crl_tempos[3],crl_immovable)
+        self.curl_left_CE.add_correct_position_for_phase(crl_key_joints, crl_down_angles, crl_tolerancies_down,crl_tempos[3], crl_immovable)
 
     def angle_match_percent(self,angle_a, angle_b):
         return (180 - abs(angle_a - angle_b))/180
@@ -135,8 +148,10 @@ class ExerciseValidator:
             correct_exercise = self.lat_CE
         elif exercise == 'row':
             correct_exercise = self.row_CE
+        elif exercise == 'curl right':
+            correct_exercise = self.curl_right_CE
         else:
-            correct_exercise = self.curl_CE
+            correct_exercise = self.curl_left_CE
 
         frames[0].key_position_flag = False
         phase_tmp = 0
@@ -145,13 +160,13 @@ class ExerciseValidator:
             if phase_tmp >= correct_exercise.number_of_phases:
                 break
             frame_tmp += 1
-            frames[i+1].key_position_flag = (frames[i].phase != frames[i+1].phase)
+            frames[i+1].key_position_flag = (frames[i].phase != frames[i+1].phase) or i+2 == len(frames)
             self.is_joints_moving(frames[i], frames[i+1], correct_exercise,phase_tmp)
             if frames[i+1].key_position_flag:
                 frames[i+1].percent_match, frames[i+1].joints_wrong_angles = self.check_frame_position(frames[i+1], phase_tmp, correct_exercise)
-                frames[i+1].tempo = self.check_tempo(frame_tmp, phase_tmp,correct_exercise)
-                for j in range(i-frame_tmp, i):
-                    frames[j].tempo = frames[i+1].tempo
+                frames[i].tempo = self.check_tempo(frame_tmp, phase_tmp,correct_exercise)
+                for j in range(i-frame_tmp+1, i+1):
+                    frames[j].tempo = frames[i].tempo
                     if phase_tmp == 2:
                         frames[j].joints_wrong_angles = frames[i + 1].joints_wrong_angles
                 phase_tmp += 1

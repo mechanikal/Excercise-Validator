@@ -93,9 +93,9 @@ class VideoProcessor(QObject):
         if exercise == 0:
             prefix = prefix + "lateral_raise"
         elif exercise == 1:
-            prefix = prefix + "dumbbell_curl"
-        else:
             prefix = prefix + "barbell_row"
+        else:
+            prefix = prefix + "dumbbell_curl"
 
         filename_f = prefix + "_front.mp4"
         filename_s = prefix + "_side.mp4"
@@ -159,16 +159,13 @@ class RepCounterThread(QThread):
         # key joint structure:
         # 0-landmark A, 1-landmark B, 2-landmark-C, 3- tolerancy, 4- angle_down, 5-angle_up
         key_joints_lat = [
-            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER, DFL.LEFT_HIP, 30, 5, 90], # left arm rise
-            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER, DFL.RIGHT_HIP, 30, 5, 90], # right arm rise
-            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER, DFL.LEFT_SHOULDER, 30, 90, 180], # move must be lateral
-            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER, DFL.RIGHT_SHOULDER, 30, 90, 180]
+            [DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, DFL.LEFT_HIP, 30, 0, 80], # left arm rise
+            [DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, DFL.RIGHT_HIP, 30, 0, 80], # right arm rise
+            [DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, DFL.LEFT_SHOULDER, 30, 90, 160], # move must be lateral
+            [DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, DFL.RIGHT_SHOULDER, 30, 90, 160]
         ]
         # distance to grow when moving up 0- landmark a 1- landmark b 3- up/down reverse
-        move_landmarks_lat = [
-            [DFL.LEFT_WRIST, DFL.LEFT_HIP, True],
-            [DFL.RIGHT_WRIST, DFL.RIGHT_HIP, True]
-        ]
+        move_landmarks_lat = [DFL.LEFT_ELBOW,DFL.RIGHT_ELBOW]
         # which joints must be visible to count exercise 0- joint 1 - min visibility front 2 - min visibility side
         visibility_condition_lat = [
             [DFL.LEFT_WRIST, 0.66, 0],
@@ -180,15 +177,12 @@ class RepCounterThread(QThread):
         ]
 
         key_joints_row = [
-            [DFL.LEFT_HEEL, DFL.LEFT_HIP, DFL.LEFT_SHOULDER, 50, 130, 130],
-            [DFL.RIGHT_HEEL, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER, 50, 110, 110],
-            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 40, 150, 90],
-            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 40, 150, 90]
+            [DFL.LEFT_KNEE, DFL.LEFT_HIP, DFL.LEFT_SHOULDER, 40, 110, 110],
+            [DFL.RIGHT_KNEE, DFL.RIGHT_HIP, DFL.RIGHT_SHOULDER, 40, 110, 110],
+            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 25, 170, 85],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 25, 170, 85]
         ]
-        move_landmarks_row = [
-            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER,False],
-            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER,False],
-        ]
+        move_landmarks_row = [DFL.RIGHT_WRIST,DFL.LEFT_WRIST]
         visibility_condition_row = [
             [DFL.LEFT_WRIST, 0.66, 0],
             [DFL.RIGHT_WRIST, 0.66, 0],
@@ -198,15 +192,17 @@ class RepCounterThread(QThread):
             [DFL.RIGHT_HEEL, 0.30, 0]
         ]
 
-        key_joints_curl = [
-            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 40, 150, 60],
-            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 40, 150, 60]
+        self.key_joints_curl_left = [
+            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 30, 175, 90],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 30, 175, 175]
         ]
-        move_landmarks_curl = [
-            [DFL.LEFT_WRIST, DFL.LEFT_SHOULDER,False],
-            [DFL.RIGHT_WRIST, DFL.RIGHT_SHOULDER,False],
+        self.move_landmarks_curl_left = [DFL.LEFT_WRIST]
+        self.key_joints_curl_right = [
+            [DFL.LEFT_WRIST, DFL.LEFT_ELBOW, DFL.LEFT_SHOULDER, 30, 175, 175],
+            [DFL.RIGHT_WRIST, DFL.RIGHT_ELBOW, DFL.RIGHT_SHOULDER, 30, 175, 90]
         ]
-        visibility_condition_curl = [
+        self.move_landmarks_curl_right = [DFL.RIGHT_WRIST]
+        self.visibility_condition_curl = [
             [DFL.LEFT_WRIST, 0.66, 0],
             [DFL.RIGHT_WRIST, 0.66, 0],
             [DFL.RIGHT_SHOULDER, 0.66, 0],
@@ -231,21 +227,29 @@ class RepCounterThread(QThread):
 
         self.queue = frame_queue
 
-        self.movement_threshold = 4
+        self.movement_threshold = 2
         self.running = False
+        self.curling = False
+        self.rowing = False
+        self.raising = False
+        self.curling_left = False
 
         if current_exercise == 0:
+            self.raising = True
             self.key_joints = key_joints_lat
             self.move_landmarks = move_landmarks_lat
             self.visibility_condition = visibility_condition_lat
         elif current_exercise == 1:
+            self.rowing = True
             self.key_joints = key_joints_row
             self.move_landmarks = move_landmarks_row
             self.visibility_condition = visibility_condition_row
         else:
-            self.key_joints = key_joints_curl
-            self.move_landmarks = move_landmarks_curl
-            self.visibility_condition = visibility_condition_curl
+            self.curling = True
+            self.curling_left = False
+            self.key_joints = self.key_joints_curl_right
+            self.move_landmarks = self.move_landmarks_curl_right
+            self.visibility_condition = self.visibility_condition_curl
 
     def run(self):
         self.running = True
@@ -260,6 +264,11 @@ class RepCounterThread(QThread):
     def stop(self):
         self.running = False
 
+    def horizontal_difference(self,landmark1,landmark2):
+        x1 = landmark1[0]
+        x2 = landmark2[0]
+        return abs(x1 - x2)
+
     def calc_angle(self, a, b, c):
         ba = a - b
         bc = c - b
@@ -272,7 +281,6 @@ class RepCounterThread(QThread):
     def run_exercise_logic(self,frame,key_joints, move_landmarks,v_front,v_side,visibility_condition):
         starting_check, top_check = [], []
         invisible_flag = False
-        moving_any_up, moving_any_down = False, False
         fk = frame.keypoints
         for joint in key_joints:
             try:
@@ -283,6 +291,7 @@ class RepCounterThread(QThread):
                 top_check.append(abs(angle - joint[5]) < tol)
             except:
                 continue
+
         for jv in visibility_condition:
             joint = jv[0]
             v_f = jv[1]
@@ -290,58 +299,16 @@ class RepCounterThread(QThread):
             if v_front[joint.value] < v_f or v_side[joint.value] < v_s:
                 invisible_flag = True
 
-        move_distances = [] # replace with np.array?
-        for move_landmark in move_landmarks:
-            dist = np.linalg.norm(
-                frame.keypoints[move_landmark[0]] -
-                frame.keypoints[move_landmark[1]]
-            )
-            move_distances.append(dist)
-        diffs = []
-        if self.prev_frame_move_joints_distance:  # last frame is actually 4 frames behind current
-            for i in range(len(move_distances)):
-                diff = self.prev_frame_move_joints_distance[i] - move_distances[i]
-                diffs.append(diff)
-            if all(df > self.movement_threshold for df in diffs):
-                moving_any_up = True
-            elif all(df < -self.movement_threshold for df in diffs):
-                moving_any_down = True
-            if move_landmarks[0][2]: # reverse
-                if moving_any_up:
-                    moving_any_up = False
-                    moving_any_down = True
-                elif moving_any_down:
-                    moving_any_down = False
-                    moving_any_up = True
-
-        self.move_joints_distance_history.insert(0, move_distances)
-        if len(self.move_joints_distance_history) >= 4:
-            self.prev_frame_move_joints_distance = self.move_joints_distance_history.pop()
-
         is_starting = all(starting_check) if starting_check and not invisible_flag else False
         is_top = all(top_check) if top_check and not invisible_flag else False
 
         if is_starting:
             self.current_frame_data.phase = frame_data.PhaseEnum.START
             if self.top_reached:
-                if not moving_any_down:
-                    self.handle_repetition_complete()
+                self.handle_repetition_complete()
         elif is_top:
-            self.current_frame_data.phase = frame_data.PhaseEnum.PAUSE
+            # print("top")
             self.top_reached = True
-        if moving_any_up:
-            # print("up up up")
-            self.current_frame_data.phase = frame_data.PhaseEnum.LIFT
-        elif moving_any_down:
-            # print("down down down")
-            self.current_frame_data.phase = frame_data.PhaseEnum.LOWER
-        elif self.top_reached:
-            self.current_frame_data.phase = frame_data.PhaseEnum.PAUSE
-            # print("stop")
-        else:
-            self.current_frame_data.phase = frame_data.PhaseEnum.START
-            #print("start")
-
         self.frames_since_last_rep += 1
         if self.frames_since_last_rep >= self.idle_threshold and self.reps_arr:
             self.finish_set()
@@ -351,14 +318,30 @@ class RepCounterThread(QThread):
 
 
     def handle_repetition_complete(self):
-        #print("repetition complete",self.current_repetition_number)
+        print("repetition complete",self.current_repetition_number)
         self.current_repetition_number += 1
-        self.clean_repetition(self.temp_frames)
+        for frame in self.temp_frames:
+            frame.repetition_number = self.current_repetition_number
+        self.calculate_phases(self.temp_frames,self.move_landmarks,10)
         self.reps_arr.append(self.temp_frames)
         self.frames_since_last_rep = 0
         self.temp_frames = []
         self.top_reached = False
         self.rep_finished_signal.emit(self.current_repetition_number)
+        if self.curling:
+            self.curl_hand_switch()
+
+    def curl_hand_switch(self,reset = False):
+            if self.curling_left or reset:
+                self.key_joints = self.key_joints_curl_right
+                self.move_landmarks = self.move_landmarks_curl_right
+                self.visibility_condition = self.visibility_condition_curl
+                self.curling_left = False
+            else:
+                self.key_joints = self.key_joints_curl_left
+                self.move_landmarks = self.move_landmarks_curl_left
+                self.visibility_condition = self.visibility_condition_curl
+                self.curling_left = True
 
     def finish_set(self):
         if self.reps_arr:
@@ -370,28 +353,46 @@ class RepCounterThread(QThread):
             self.frames_since_last_rep = 0
             self.set_finished_signal.emit(set_n)
             self.current_frame_data.set_number = 0
+            if self.curling:
+                self.curl_hand_switch(reset = True)
 
-    def clean_repetition(self, frames_list):
-        self.remove_rep_outliers(frames_list)
-        pause_indices = [i for i, f in enumerate(frames_list) if f.phase == frame_data.PhaseEnum.PAUSE]
-        if not pause_indices: return frames_list
-        first_p, last_p = pause_indices[0], pause_indices[-1]
+    def calculate_phases(self, frames_list,move_landmarks,deviation_tolerance):
+        start = 0
+        for landmark in move_landmarks:
+            start += frames_list[0].keypoints[landmark][1]
+        start /= len(move_landmarks)
+        deviations = np.zeros(len(frames_list),dtype=float)
         for i, frame in enumerate(frames_list):
-            if i < first_p and frame.phase != frame_data.PhaseEnum.START:
-                frame.phase = frame_data.PhaseEnum.LIFT
-            elif i > last_p and frame.phase != frame_data.PhaseEnum.START:
-                frame.phase = frame_data.PhaseEnum.LOWER
-            elif first_p <= i <= last_p:
-                frame.phase = frame_data.PhaseEnum.PAUSE
+            temp = 0
+            for landmark in move_landmarks:
+                temp += frame.keypoints[landmark][1]
+            temp /= len(move_landmarks)
+            deviations[i] = abs(temp - start)
+        max_deviation = np.max(deviations)
+        max_deviation_index = int(np.argmax(deviations))
+        found_outlier = False
+        for i in range(1,(len(frames_list) - max_deviation_index)):
+            if found_outlier:
+                frames_list[i+max_deviation_index].phase = frame_data.PhaseEnum.LOWER
+                continue
+            if abs(deviations[i+max_deviation_index]-max_deviation) <= deviation_tolerance:
+                frames_list[i+max_deviation_index].phase = frame_data.PhaseEnum.PAUSE
+            else:
+                found_outlier = True
+        found_pause = False
+        for i in range(max_deviation_index):
+            if found_pause:
+                frames_list[i].phase = frame_data.PhaseEnum.PAUSE
+                continue
+            if abs(deviations[i]-max_deviation) > deviation_tolerance:
+                frames_list[i].phase = frame_data.PhaseEnum.LIFT
+            else:
+                frames_list[i].phase = frame_data.PhaseEnum.PAUSE
+                found_pause = True
+
+        frames_list[0].phase = frame_data.PhaseEnum.START
         return frames_list
 
-    def remove_rep_outliers(self, frames_list):
-        for i in range(1, len(frames_list) - 1):
-            f_prev = frames_list[i - 1]
-            f_curr = frames_list[i]
-            f_next = frames_list[i + 1]
-            if f_curr != f_prev and f_prev == f_next:
-                frames_list[i] = f_prev
 
 class VideoSynchronizerAndWriter(QThread):
     def __init__(self, queue_front, queue_side,output_queue, writer_front, writer_side):
@@ -434,7 +435,7 @@ class VideoSynchronizerAndWriter(QThread):
                         frame_index=frame_counter, set_number=0, repetition_number=0,
                         keypoints=kp_output,
                         keypoints_side = kp_s,
-                        phase = frame_data.PhaseEnum.START,
+                        phase = frame_data.PhaseEnum.PAUSE,
                         tempo = frame_data.TempoEnum.OK,
                         percent_match = np.float32(0), key_position_flag = np.bool_(0),
                         joints_moving = np.zeros(15,dtype=np.bool_),
