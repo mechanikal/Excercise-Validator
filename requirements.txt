@@ -1,0 +1,9 @@
+numpy
+opencv-python
+mediapipe
+PySide6
+SpeechRecognition
+pyttsx3
+fuzzywuzzy
+python-Levenshtein
+pyaudio
