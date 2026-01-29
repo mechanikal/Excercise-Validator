@@ -1,7 +1,7 @@
 # Not-Fortnite-Dances
 Repository without any fortnite dances
 
-Mediapipe installing:
+Installing dependencies:
 ```
-pip install mediapipe
+pip install -r requirements.txt
 ```
