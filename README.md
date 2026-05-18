@@ -1,78 +1,78 @@
-# Not-Fortnite-Dances
-Repository without any fortnite dances
+# Excercise-Validator
+python excercise validator with gui and voice interface that synchronizes and processes video from two cameras
+supports 3 excercises : barbell row, bicep curl, lateral raises
+body landmark detection implemented using mediapipe library
 
-Installing dependencies:
-```
+Łódź University of Technology project 2025
+Authors:
+Stanisław Jaworski
+Krzysztof Wojtal
+Kacper Orkwiszewski
+Miłosz Grabowski
+
+# 📖 Instrukcja użytkowania
+
+# 1. Instalacja wymaganych bibliotek:
 pip install -r requirements.txt
+wymagane biblioteki:
+- numpy
+- opencv-python
+- mediapipe
+- PySide6
+- SpeechRecognition
+- pyttsx3
+- fuzzywuzzy
+- python-Levenshtein
+- pyaudio
+# 2. Uruchomienie programu
+Aplikacja wymaga podłączenia dwóch kamer.
+Kamera przednia (Frontal): Domyślnie urządzenie o indeksie 0.
+Kamera boczna (Lateral): Domyślnie urządzenie o indeksie 1.
+Aby zmienić źródła obrazu, należy edytować plik Controller.py (linie 11-12):
 ```
-## 📖 Instrukcja użytkowania
-
-### 1. Konfiguracja sprzętowa
-Aplikacja domyślnie wymaga podłączenia **dwóch kamer** do poprawnej analizy postawy (widok z przodu i z boku).
-* **Kamera przednia (Frontal)**: Domyślnie urządzenie o indeksie `0` (np. wbudowana kamera w laptopie lub pierwsza kamera USB).
-* **Kamera boczna (Lateral)**: W kodzie zdefiniowana jako strumień sieciowy IP (domyślnie `http://192.168.138.221:8080/video`).
-
-> **Uwaga:** Aby zmienić źródła obrazu, edytuj plik `Controller.py` (linie 11-12):
-> ```python
-> FRONTAL_CAMERA = 0  # Zmień na indeks swojej kamery lub ścieżkę do pliku wideo
-> LATERAL_CAMERA = "twoj_adres_ip_kamery" # Lub indeks innej kamery USB (np. 1)
-> ```
-
-### 2. Uruchomienie aplikacji
-Upewnij się, że jesteś w głównym katalogu projektu i masz aktywowane środowisko wirtualne. Uruchom plik główny:
-```bash
-python Controller.py
+FRONTAL_CAMERA = 0 # Indeks lub adres kamery przedniej
+LATERAL_CAMERA = 1 # Indeks lub adres kamery bocznej
 ```
-
-## 🕹️ Przewodnik po aplikacji
-
-### 1. Menu Główne
-Po uruchomieniu programu zobaczysz ekran startowy z następującymi opcjami:
-* **ROZPOCZNIJ**: Przechodzi do trybu treningowego (ekran oczekiwania).
-* **RAPORTY**: Biblioteka nagranych i przeanalizowanych ćwiczeń.
-* **DOKUMENTACJA**: (Opcja w budowie)
-* **WYJDŹ**: Zamyka aplikację i zatrzymuje procesy kamer.
-
-### 2. Wykonywanie Treningu
-Proces treningowy został zaprojektowany tak, aby minimalizować potrzebę interakcji z klawiaturą/myszką (obsługa głosowa).
-
-1.  **Wybór ćwiczenia**: W menu treningowym wybierz jedno z dostępnych ćwiczeń (np. "Wznosy w bok").
-2.  **Nagrywanie i Instruktaż**:
-    * Po wyborze ćwiczenia, system **automatycznie rozpoczyna nagrywanie** z obu kamer.
-    * Na ekranie wyświetlana jest animacja (GIF) pokazująca poprawną technikę ruchu.
-    * *Uwaga: W trakcie ćwiczenia nie widzisz podglądu z kamery – skup się na poprawności ruchu. Trener (głos) będzie liczył powtórzenia.*
-3.  **Feedback Głosowy**:
-    * System na bieżąco analizuje ruch. Usłyszysz licznik powtórzeń (np. "Jeden", "Dwa").
-    * Jeśli wykonasz serię, usłyszysz komunikat o numerze serii.
-4.  **Zakończenie**:
-    * Wybierz przycisk **"ZAKOŃCZ ĆWICZENIE"** lub wydaj komendę głosową.
-    * System przejdzie do ekranu "ŁADOWANIE..." – w tym czasie przetwarza nagranie wideo, nanosi analizę biometryczną i zapisuje raport.
-
-### 3. Analiza Wideo (Raporty)
-Najważniejszą funkcją programu jest wizualna analiza techniki dostępna w sekcji **RAPORTY**. Po otwarciu nagrania zobaczysz nałożone na obraz elementy diagnostyczne:
-
-#### 📉 Oznaczenia Graficzne
-Na ciele ćwiczącego rysowany jest szkielet, który wskazuje błędy w czasie rzeczywistym:
-* 🟢 **Zielone punkty**: Staw znajduje się w poprawnej pozycji lub pozostaje nieruchomy (zgodnie z wzorcem).
-* 🔴 **Czerwone punkty**:
-    * Wykryto niepożądany ruch (np. bujanie tułowiem przy uginaniu ramion).
-    * Kąt w stawie jest nieprawidłowy (np. niepełny wyprost).
-
-#### ⏱️ Wskaźniki Tempa i Fazy
-W rogu ekranu wyświetlane są ikony i napisy informujące o dynamice ruchu:
-* **Ikona Zegarka**:
-    * ✅ **Tarcza zielona/normalna**: Tempo ruchu jest idealne.
-    * 🐢 **Ikona "Wolniej"** (sugerująca zwolnienie): Wykonujesz ruch zbyt gwałtownie/szybko.
-    * 🐇 **Ikona "Szybciej"** (sugerująca przyspieszenie): Ruch jest zbyt powolny.
-* **Napisy Fazy**:
-    * `LIFT`: Faza wznoszenia ciężaru (ruch koncentryczny).
-    * `LOWER`: Faza opuszczania (ruch ekscentryczny).
-    * `PAUSE`: Pauza w punkcie szczytowym lub końcowym.
-
-#### 📊 Statystyki Liczbowe
-* **Duża liczba na dole**: Aktualny numer powtórzenia.
-* **Liczba procentowa (np. 0.85)**: Wskaźnik dopasowania twojej pozy do wzorca idealnego w kluczowym momencie ruchu (1.00 = ideał).
-
-### 4. Wskazówki Techniczne
-* **Ustawienie kamer**: Dla najlepszych wyników kamera przednia powinna widzieć całą sylwetkę, a kamera boczna powinna być ustawiona pod kątem 90 stopni do ćwiczącego.
-* **Oświetlenie**: Zadbaj o dobre oświetlenie pomieszczenia, aby system `MediaPipe` mógł precyzyjnie wykryć stawy.
+Aplikacje należy uruchamiać z poziomu katalogu kod.
+Plik uruchamiający program: Controller.py
+# 3. Przewodnik po aplikacji
+## 3.1 Menu Główne
+ROZPOCZNIJ: Przechodzi do trybu treningowego (ekran oczekiwania).
+RAPORTY: Biblioteka nagranych i przeanalizowanych ćwiczeń. (Może nie aktualizować się poprawnie)
+DOKUMENTACJA: (Nie zaimplementowano)
+WYJDŹ: Zamyka aplikację i zatrzymuje procesy kamer.
+## 3.2 Zapis raportów i nagrań
+czyste nagrania pobrane podczas ćwiczenia zapisywane są w katalogu camera_recordings
+raporty wideo utworzone na podstawie wykonywanych powtórzeń zapisywane są w katalogu
+video_reports
+## 3.3 Wykonywanie ćwiczeń:
+Aby przejść do treningu należy wybrać po kolei opcje: rozpocznij -> wybierz ćwiczenie -> (wybór ćwiczenia)
+Jeżeli w trakcie treningu system wykrył powtórzenia, po wybraniu opcji „zakończ ćwiczenie”, raporty
+zostaną zapisane w katalogu video_reports.
+***
+Po menu można poruszać się za pomocą komend głosowych, obsługiwane komendy:
+"OK Trener" – trener rozpoczyna nasłuch komendy. jeżeli przez jakiś czas komenda nie zostanie wykryta
+trener ponownie przejdzie w stan uśpienia.
+"Zakończ trening"
+"Wybierz ćwiczenie"
+ "Uginanie ramion z hantlami"
+ "Wznosy bokiem"
+ "Wiosłowanie sztangą"
+"Zakończ ćwiczenie"
+***
+## 3.4 Czytanie raportu
+Zielone punkty: Wykryte stawy.
+Stawy migające na czerwono: Wykryto niewłaściwy ruch (np. bujanie tułowiem przy uginaniu ramion).
+Czerwone okręgi: Kąt w stawie jest nieprawidłowy (np. ugięte łokcie, zbyt wysoko podniesione ramiona).
+Ikona Zegarka (znacznik tempa w fazie):
+ Tarcza zielona: Tempo ruchu jest idealne.
+ Tarcza pomarańczowa (sugerująca zwolnienie): Wykonujesz ruch zbyt szybko (ew. pauza zbyt krótka).
+ Tarcza niebieska (sugerująca przyspieszenie): Ruch jest zbyt powolny (ew. pauza zbyt długa).
+Oznaczenia Fazy:
+ LIFT: Faza wznoszenia ciężaru (ruch koncentryczny).
+ LOWER: Faza opuszczania (ruch ekscentryczny).
+ PAUSE: Pauza w punkcie szczytowym lub końcowym.
+Statystyki Liczbowe:
+ Liczba w prawym dolnym rogu: Aktualny numer powtórzenia (w danej serii).
+Liczba w prawym górnym rogu: Wskaźnik dopasowania pozy do wzorca w ostatnim kluczowym
+momencie ruchu (od 0.00 do 1.00).
