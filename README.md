@@ -3,12 +3,12 @@ python excercise validator with gui and voice interface that synchronizes and pr
 supports 3 excercises : barbell row, bicep curl, lateral raises
 body landmark detection implemented using mediapipe library
 
-Łódź University of Technology project 2025
-Authors:
-Stanisław Jaworski
-Krzysztof Wojtal
-Kacper Orkwiszewski
-Miłosz Grabowski
+Łódź University of Technology project 2025  
+Authors:  
+Stanisław Jaworski  
+Krzysztof Wojtal  
+Kacper Orkwiszewski  
+Miłosz Grabowski  
 
 # 📖 Instrukcja użytkowania
 
@@ -61,18 +61,18 @@ trener ponownie przejdzie w stan uśpienia.
 "Zakończ ćwiczenie"
 ***
 ## 3.4 Czytanie raportu
-Zielone punkty: Wykryte stawy.
-Stawy migające na czerwono: Wykryto niewłaściwy ruch (np. bujanie tułowiem przy uginaniu ramion).
-Czerwone okręgi: Kąt w stawie jest nieprawidłowy (np. ugięte łokcie, zbyt wysoko podniesione ramiona).
-Ikona Zegarka (znacznik tempa w fazie):
- Tarcza zielona: Tempo ruchu jest idealne.
- Tarcza pomarańczowa (sugerująca zwolnienie): Wykonujesz ruch zbyt szybko (ew. pauza zbyt krótka).
- Tarcza niebieska (sugerująca przyspieszenie): Ruch jest zbyt powolny (ew. pauza zbyt długa).
-Oznaczenia Fazy:
- LIFT: Faza wznoszenia ciężaru (ruch koncentryczny).
- LOWER: Faza opuszczania (ruch ekscentryczny).
- PAUSE: Pauza w punkcie szczytowym lub końcowym.
-Statystyki Liczbowe:
- Liczba w prawym dolnym rogu: Aktualny numer powtórzenia (w danej serii).
+Zielone punkty: Wykryte stawy.  
+Stawy migające na czerwono: Wykryto niewłaściwy ruch (np. bujanie tułowiem przy uginaniu ramion).  
+Czerwone okręgi: Kąt w stawie jest nieprawidłowy (np. ugięte łokcie, zbyt wysoko podniesione ramiona).  
+Ikona Zegarka (znacznik tempa w fazie):  
+ Tarcza zielona: Tempo ruchu jest idealne.  
+ Tarcza pomarańczowa (sugerująca zwolnienie): Wykonujesz ruch zbyt szybko (ew. pauza zbyt krótka).  
+ Tarcza niebieska (sugerująca przyspieszenie): Ruch jest zbyt powolny (ew. pauza zbyt długa).  
+Oznaczenia Fazy:  
+ LIFT: Faza wznoszenia ciężaru (ruch koncentryczny).  
+ LOWER: Faza opuszczania (ruch ekscentryczny).  
+ PAUSE: Pauza w punkcie szczytowym lub końcowym.  
+Statystyki Liczbowe:  
+ Liczba w prawym dolnym rogu: Aktualny numer powtórzenia (w danej serii).  
 Liczba w prawym górnym rogu: Wskaźnik dopasowania pozy do wzorca w ostatnim kluczowym
 momencie ruchu (od 0.00 do 1.00).
