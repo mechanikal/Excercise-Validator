@@ -3,6 +3,8 @@ python excercise validator with gui and voice interface that synchronizes and pr
 supports 3 excercises : barbell row, bicep curl, lateral raises
 body landmark detection implemented using mediapipe library
 
+more info and screens in raport.pdf file
+
 Łódź University of Technology project 2025  
 Authors:  
 Stanisław Jaworski  
